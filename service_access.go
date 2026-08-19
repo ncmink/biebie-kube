@@ -6,8 +6,8 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	bctx "biebie.net/protocol/context"
-	"biebie.net/protocol/deeplink"
+	bctx "biebie-kube/protocol/context"
+	"biebie-kube/protocol/deeplink"
 
 	"biebie-kube/internal/access"
 )

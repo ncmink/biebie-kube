@@ -38,13 +38,14 @@ credentials                          Kubernetes sessions
 VPN sessions                         resources, logs, exec
 network connectivity                 port forwards, YAML
         │                                   │
-        └────────── biebie-protocol ────────┘
+        └────────── protocol/ ──────────────┘
                  Biebie Context Protocol
 ```
 
-They share one Go module, `biebie-protocol`, and nothing else. No shared
+They share the Biebie Context Protocol, and nothing else. No shared
 database, no shared business logic. Either application runs with the other
-uninstalled.
+uninstalled. In this repo the contract lives in `protocol/`
+(`biebie-kube/protocol/...`).
 
 ---
 
@@ -66,8 +67,8 @@ This is the rule the integration is built around. A `BiebieContext` carries
 }
 ```
 
-`biebie-protocol/context` rejects a context whose values look like credentials,
-and `biebie-protocol/deeplink` refuses to build or parse a URL carrying a
+`protocol/context` rejects a context whose values look like credentials,
+and `protocol/deeplink` refuses to build or parse a URL carrying a
 password, token or certificate. A deep link carries one thing:
 
 ```text
@@ -153,6 +154,13 @@ biebie-kube/
 ├── service_resource.go    tables, YAML, pods, events, overview, search
 ├── service_stream.go      logs, terminals, port forwards
 ├── service_access.go      Biebie Access integration and handoffs
+│
+├── protocol/              Biebie Context Protocol — no kube business logic
+│   ├── context/           who/where record
+│   ├── handoff/           short-lived, single-use handoff store
+│   ├── ipc/               Unix socket / Windows named pipe
+│   ├── deeplink/          biebie-kube:// and biebie-access:// URLs
+│   └── version/           protocol version negotiation
 │
 ├── internal/
 │   ├── domain/            models shared across services

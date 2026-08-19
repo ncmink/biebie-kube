@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	bctx "biebie.net/protocol/context"
+	bctx "biebie-kube/protocol/context"
 
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/domain"

@@ -9,7 +9,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	bctx "biebie.net/protocol/context"
+	bctx "biebie-kube/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"

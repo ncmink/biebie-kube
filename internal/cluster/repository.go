@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	bctx "biebie.net/protocol/context"
+	bctx "biebie-kube/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/store"

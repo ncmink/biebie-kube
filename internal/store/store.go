@@ -25,8 +25,22 @@ type Data struct {
 	Clusters    []ClusterRecord    `json:"clusters"`
 	Preferences []PreferenceRecord `json:"preferences"`
 
+	// SeenContexts records the kubeconfig contexts auto-import has already
+	// acted on. Without it, a cluster the engineer deliberately deleted would
+	// reappear at the next launch.
+	SeenContexts []SeenContextRecord `json:"seenContexts,omitempty"`
+
+	// AutoImport is a pointer so that "never chosen" is distinguishable from
+	// "switched off": a fresh install imports contexts by default, and an
+	// explicit no survives a restart.
+	AutoImport *bool `json:"autoImport,omitempty"`
+
 	Appearance string `json:"appearance"`
 }
+
+// AutoImportEnabled reports whether new kubeconfig contexts should become
+// clusters on their own.
+func (d Data) AutoImportEnabled() bool { return d.AutoImport == nil || *d.AutoImport }
 
 // CurrentVersion is the schema version written by this build.
 const CurrentVersion = 1
@@ -79,6 +93,14 @@ type ClusterRecord struct {
 type PreferenceRecord struct {
 	ClusterID     string `json:"clusterId"`
 	LastNamespace string `json:"lastNamespace"`
+}
+
+// SeenContextRecord marks one kubeconfig context as already considered by
+// auto-import, whether or not a cluster still exists for it.
+type SeenContextRecord struct {
+	KubeconfigRef string `json:"kubeconfigRef"`
+	ContextName   string `json:"contextName"`
+	SeenAt        string `json:"seenAt"`
 }
 
 // Store reads and writes the document under a mutex.
@@ -197,6 +219,14 @@ func (d Data) clone() Data {
 		}
 	}
 	out.Preferences = append([]PreferenceRecord(nil), d.Preferences...)
+	out.SeenContexts = append([]SeenContextRecord(nil), d.SeenContexts...)
+
+	// The flag is copied through a new pointer so a caller mutating the clone
+	// cannot reach into the document the store still holds.
+	if d.AutoImport != nil {
+		enabled := *d.AutoImport
+		out.AutoImport = &enabled
+	}
 	return out
 }
 

@@ -186,6 +186,17 @@ func (s *Service) Forget(ref string) error {
 				return fmt.Errorf("%s is still used by cluster %q", removed.Name, cluster.Name)
 			}
 		}
+
+		// Forgetting a file forgets that its contexts were ever offered, so
+		// importing it again starts from a clean slate rather than silently
+		// finding nothing to add.
+		keptContexts := data.SeenContexts[:0]
+		for _, record := range data.SeenContexts {
+			if record.KubeconfigRef != ref {
+				keptContexts = append(keptContexts, record)
+			}
+		}
+		data.SeenContexts = keptContexts
 		return nil
 	})
 	if err != nil {

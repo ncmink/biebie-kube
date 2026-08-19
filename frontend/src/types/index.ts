@@ -67,11 +67,11 @@ export type { AccessState, ClusterView, HandoffResult, YAMLDiff } from '@binding
 // states in the protocol, and the installed-plus-status pair this application
 // shows on a cluster card. The protocol one is re-exported under a clearer
 // name rather than shadowed.
-export { AccessState as AccessConnectionState } from '@bindings/biebie.net/protocol/context/models'
-export { Environment as EnvironmentKind } from '@bindings/biebie.net/protocol/context/models'
+export { AccessState as AccessConnectionState } from '@bindings/biebie-kube/protocol/context/models'
+export { Environment as EnvironmentKind } from '@bindings/biebie-kube/protocol/context/models'
 
 export type {
   AccessSessionChanged,
   AccessStatus,
   BiebieContext,
-} from '@bindings/biebie.net/protocol/context/models'
+} from '@bindings/biebie-kube/protocol/context/models'

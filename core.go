@@ -19,6 +19,7 @@ import (
 	bctx "biebie.net/protocol/context"
 
 	"biebie-kube/internal/access"
+	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/kube"
 	"biebie-kube/internal/kubeconfig"
@@ -55,6 +56,7 @@ const (
 type Core struct {
 	store   *store.Store
 	configs *kubeconfig.Service
+	imports *autoimport.Service
 
 	clusters *cluster.Manager
 	access   *access.Client
@@ -91,8 +93,11 @@ func NewCore() (*Core, error) {
 
 	events := emitter{}
 
+	clusters := cluster.NewRepository(st)
+	core.imports = autoimport.NewService(core.configs, clusters, st)
+
 	core.clusters = cluster.NewManager(
-		cluster.NewRepository(st),
+		clusters,
 		core.configs,
 		kube.NewFactory(appVersion),
 		accessClient,
@@ -131,6 +136,13 @@ func (c *Core) Start(onLink func(string)) {
 	if len(c.store.Read().Kubeconfigs) == 0 {
 		_, _ = c.configs.ImportDefault()
 	}
+
+	// Contexts become clusters before the window opens, so the first screen
+	// already lists what the engineer can reach. This runs on every launch
+	// rather than only the first, because a context added with kubectl since
+	// last time is exactly the case worth catching — and it only ever considers
+	// a context once, so nothing deleted comes back.
+	c.imports.Sync()
 }
 
 // Stop releases every session before the process exits, so no port forward or

@@ -6,6 +6,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kubeconfig"
 )
@@ -145,6 +146,26 @@ func (s *ClusterService) ChooseKubeconfig() (string, error) {
 // ForgetKubeconfig removes a reference to a kubeconfig.
 func (s *ClusterService) ForgetKubeconfig(ref string) error {
 	return describe(s.core.configs.Forget(ref))
+}
+
+// ScanContexts lists kubeconfig contexts that are not clusters yet, with the
+// name and environment an import would give them.
+func (s *ClusterService) ScanContexts() []autoimport.Candidate {
+	return s.core.imports.Scan()
+}
+
+// ImportAllContexts adds a cluster for every context that does not have one.
+func (s *ClusterService) ImportAllContexts() autoimport.Result {
+	return s.core.imports.ImportAll()
+}
+
+// AutoImportEnabled reports whether new contexts are added on their own.
+func (s *ClusterService) AutoImportEnabled() bool { return s.core.imports.Enabled() }
+
+// SetAutoImportEnabled turns automatic import on or off. Turning it off leaves
+// the clusters already imported exactly where they are.
+func (s *ClusterService) SetAutoImportEnabled(enabled bool) error {
+	return describe(s.core.imports.SetEnabled(enabled))
 }
 
 // ResourceCatalogue returns the navigation tree, filtered to what this cluster

@@ -251,3 +251,29 @@ type SearchHit struct {
 	Namespace string `json:"namespace,omitempty"`
 	Health    Health `json:"health"`
 }
+
+// DataEntry is one key from a ConfigMap or Secret `data` (or `binaryData`) map.
+//
+// Value is exactly what Kubernetes stores on the object: plaintext for
+// ConfigMap `data`, and base64 for Secret `data` and ConfigMap `binaryData`.
+// It is never decoded — revealing a secret in the UI must show the stored
+// encoding, not the plaintext behind it.
+type DataEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+
+	// Binary marks ConfigMap binaryData (and is unused for Secrets, whose
+	// data is always base64 in the API JSON).
+	Binary bool `json:"binary,omitempty"`
+}
+
+// ResourceInspect is the right-hand inspector for one object.
+type ResourceInspect struct {
+	Ref       ResourceRef `json:"ref"`
+	CreatedAt time.Time   `json:"createdAt"`
+
+	// Type is a Secret's type (Opaque, kubernetes.io/tls, …).
+	Type string `json:"type,omitempty"`
+
+	Data []DataEntry `json:"data,omitempty"`
+}

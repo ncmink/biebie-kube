@@ -5,7 +5,7 @@ import StateDot from '@/components/common/StateDot.vue'
 import { age } from '@/composables/format'
 import type { ResourcePage, ResourceRow } from '@/types'
 
-const props = defineProps<{ page: ResourcePage; filter?: string }>()
+const props = defineProps<{ page: ResourcePage; filter?: string; selected?: ResourceRow | null }>()
 const emit = defineEmits<{ open: [row: ResourceRow] }>()
 
 // A page with nothing on it arrives with null rows, since that is what Go's nil
@@ -80,6 +80,11 @@ watch(viewport, measure)
           v-for="row in visible"
           :key="row.uid || `${row.namespace}/${row.name}`"
           class="cursor-pointer border-t border-line/60 hover:bg-surface-2"
+          :class="
+            selected && selected.namespace === row.namespace && selected.name === row.name
+              ? 'bg-brand/10'
+              : ''
+          "
           :style="{ height: `${rowHeight}px` }"
           @click="emit('open', row)"
         >

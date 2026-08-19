@@ -12,3 +12,11 @@ const known = new Set<string>(Object.values(Kind))
 export function asKind(value: string): Kind | undefined {
   return known.has(value) && value !== Kind.$zero ? (value as Kind) : undefined
 }
+
+/** singularTitle turns catalogue plurals into the inspector heading. */
+export function singularTitle(title: string): string {
+  if (title.endsWith('ies')) return `${title.slice(0, -3)}y`
+  if (title.endsWith('ses')) return title.slice(0, -2)
+  if (title.endsWith('s')) return title.slice(0, -1)
+  return title
+}

@@ -27,6 +27,15 @@ func (s *ResourceService) WatchResources(clusterID, kind, namespace string) erro
 	return describe(s.core.resources.Watch(clusterID, domain.Kind(kind), namespace))
 }
 
+// InspectResource returns the right-hand inspector payload for one object.
+//
+// ConfigMap and Secret data values are the stored encoding. Secret `data` is
+// base64 and is never decoded here.
+func (s *ResourceService) InspectResource(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.ResourceInspect, error) {
+	inspect, err := s.core.resources.InspectResource(ctx, clusterID, ref)
+	return inspect, describe(err)
+}
+
 // GetResourceYAML returns a resource as editable YAML.
 func (s *ResourceService) GetResourceYAML(ctx context.Context, clusterID string, ref domain.ResourceRef) (string, error) {
 	yaml, err := s.core.manifests.Read(ctx, clusterID, ref)

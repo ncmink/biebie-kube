@@ -18,6 +18,24 @@ export function age(iso: string | null | undefined): string {
   return `${Math.floor(seconds / 86_400)}d`
 }
 
+/** agoClock is the inspector's created line: relative age plus the wall clock. */
+export function agoClock(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return '—'
+
+  const seconds = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000))
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor((seconds % 86_400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const parts: string[] = []
+  if (days) parts.push(`${days}d`)
+  if (hours) parts.push(`${hours}h`)
+  if (minutes && days < 30) parts.push(`${minutes}m`)
+  if (!parts.length) parts.push(`${seconds}s`)
+  return `${parts.join(' ')} ago (${then.toLocaleString()})`
+}
+
 /** duration renders elapsed time for a connected session. */
 export function duration(iso: string | null | undefined): string {
   if (!iso) return '—'

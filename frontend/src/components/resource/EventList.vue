@@ -7,7 +7,12 @@ import { age } from '@/composables/format'
 import { Health } from '@/types'
 import type { EventRow } from '@/types'
 
-const props = defineProps<{ clusterId: string; namespace: string; involving?: string }>()
+const props = defineProps<{
+  clusterId: string
+  namespace: string
+  involving?: string
+  compact?: boolean
+}>()
 
 const rows = ref<EventRow[]>([])
 const error = ref('')
@@ -41,8 +46,11 @@ watch(() => [props.clusterId, props.namespace, props.involving], load)
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col">
-    <div class="flex shrink-0 items-center gap-3 border-b border-line px-6 py-2">
+  <div class="flex min-h-0 flex-col" :class="compact ? '' : 'h-full'">
+    <div
+      v-if="!compact"
+      class="flex shrink-0 items-center gap-3 border-b border-line px-6 py-2"
+    >
       <label class="flex items-center gap-1.5 text-xs text-ink-muted">
         <input v-model="onlyWarnings" type="checkbox" class="accent-brand" /> Warnings only
       </label>
@@ -65,17 +73,26 @@ watch(() => [props.clusterId, props.namespace, props.involving], load)
     </p>
 
     <div v-else class="min-h-0 flex-1 overflow-y-auto">
-      <p v-if="!shown.length" class="px-6 py-10 text-center text-sm text-ink-faint">
-        No events to show.
+      <p
+        v-if="!shown.length"
+        class="px-4 py-6 text-center text-sm text-ink-faint"
+        :class="compact ? 'py-4 text-xs' : 'px-6 py-10'"
+      >
+        {{ compact ? 'No events found' : 'No events to show.' }}
       </p>
       <ul v-else class="divide-y divide-line">
-        <li v-for="row in shown" :key="row.uid" class="flex items-start gap-3 px-6 py-2.5">
+        <li
+          v-for="row in shown"
+          :key="row.uid"
+          class="flex items-start gap-3 py-2.5"
+          :class="compact ? 'px-3 py-2' : 'px-6'"
+        >
           <StateDot
             :health="row.type === 'Warning' ? Health.HealthWarning : Health.HealthHealthy"
             class="mt-1.5"
           />
           <div class="min-w-0 flex-1">
-            <p class="text-sm text-ink">
+            <p class="text-sm text-ink" :class="compact ? 'text-xs' : ''">
               <span class="font-medium">{{ row.reason }}</span>
               <span class="text-ink-faint"> · {{ row.object }}</span>
             </p>

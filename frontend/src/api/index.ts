@@ -61,6 +61,7 @@ export const api = {
 
   listResources: ResourceService.ListResources,
   watchResources: ResourceService.WatchResources,
+  inspectResource: ResourceService.InspectResource,
   getYAML: ResourceService.GetResourceYAML,
   diffYAML: ResourceService.DiffResourceYAML,
   applyYAML: ResourceService.ApplyResourceYAML,

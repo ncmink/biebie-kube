@@ -7,6 +7,17 @@ package domain
 // entry rather than a new code path.
 var catalogue = []KindInfo{
 	{
+		Kind: KindNode, Title: "Nodes", Category: CategoryCluster,
+		Version: "v1", Resource: "nodes", Namespaced: false, Standalone: true,
+		Columns: []Column{
+			{Key: "status", Title: "Status"},
+			{Key: "roles", Title: "Roles"},
+			{Key: "version", Title: "Version", Mono: true},
+			{Key: "cpu", Title: "CPU", Mono: true},
+			{Key: "memory", Title: "Memory", Mono: true},
+		},
+	},
+	{
 		Kind: KindPod, Title: "Pods", Category: CategoryWorkloads,
 		Version: "v1", Resource: "pods", Namespaced: true,
 		Columns: []Column{
@@ -28,7 +39,7 @@ var catalogue = []KindInfo{
 		},
 	},
 	{
-		Kind: KindStatefulSet, Title: "StatefulSets", Category: CategoryWorkloads,
+		Kind: KindStatefulSet, Title: "Stateful Sets", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "statefulsets", Namespaced: true,
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
@@ -36,7 +47,7 @@ var catalogue = []KindInfo{
 		},
 	},
 	{
-		Kind: KindDaemonSet, Title: "DaemonSets", Category: CategoryWorkloads,
+		Kind: KindDaemonSet, Title: "Daemon Sets", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "daemonsets", Namespaced: true,
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
@@ -45,8 +56,16 @@ var catalogue = []KindInfo{
 		},
 	},
 	{
-		Kind: KindReplicaSet, Title: "ReplicaSets", Category: CategoryWorkloads,
+		Kind: KindReplicaSet, Title: "Replica Sets", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "replicasets", Namespaced: true,
+		Columns: []Column{
+			{Key: "ready", Title: "Ready", Mono: true},
+			{Key: "desired", Title: "Desired", Mono: true},
+		},
+	},
+	{
+		Kind: KindReplicationController, Title: "Replication Controllers", Category: CategoryWorkloads,
+		Version: "v1", Resource: "replicationcontrollers", Namespaced: true,
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
 			{Key: "desired", Title: "Desired", Mono: true},
@@ -61,7 +80,7 @@ var catalogue = []KindInfo{
 		},
 	},
 	{
-		Kind: KindCronJob, Title: "CronJobs", Category: CategoryWorkloads,
+		Kind: KindCronJob, Title: "Cron Jobs", Category: CategoryWorkloads,
 		Group: "batch", Version: "v1", Resource: "cronjobs", Namespaced: true,
 		Columns: []Column{
 			{Key: "schedule", Title: "Schedule", Mono: true},
@@ -72,7 +91,7 @@ var catalogue = []KindInfo{
 	},
 
 	{
-		Kind: KindConfigMap, Title: "ConfigMaps", Category: CategoryConfig,
+		Kind: KindConfigMap, Title: "Config Maps", Category: CategoryConfig,
 		Version: "v1", Resource: "configmaps", Namespaced: true,
 		Columns: []Column{{Key: "keys", Title: "Keys", Mono: true}},
 	},
@@ -83,6 +102,42 @@ var catalogue = []KindInfo{
 			{Key: "type", Title: "Type"},
 			{Key: "keys", Title: "Keys", Mono: true},
 		},
+	},
+	{
+		Kind: KindResourceQuota, Title: "Resource Quotas", Category: CategoryConfig,
+		Version: "v1", Resource: "resourcequotas", Namespaced: true,
+	},
+	{
+		Kind: KindLimitRange, Title: "Limit Ranges", Category: CategoryConfig,
+		Version: "v1", Resource: "limitranges", Namespaced: true,
+	},
+	{
+		Kind: KindHorizontalPodAutoscaler, Title: "Horizontal Pod Autoscalers", Category: CategoryConfig,
+		Group: "autoscaling", Version: "v2", Resource: "horizontalpodautoscalers", Namespaced: true,
+	},
+	{
+		Kind: KindPodDisruptionBudget, Title: "Pod Disruption Budgets", Category: CategoryConfig,
+		Group: "policy", Version: "v1", Resource: "poddisruptionbudgets", Namespaced: true,
+	},
+	{
+		Kind: KindPriorityClass, Title: "Priority Classes", Category: CategoryConfig,
+		Group: "scheduling.k8s.io", Version: "v1", Resource: "priorityclasses", Namespaced: false,
+	},
+	{
+		Kind: KindRuntimeClass, Title: "Runtime Classes", Category: CategoryConfig,
+		Group: "node.k8s.io", Version: "v1", Resource: "runtimeclasses", Namespaced: false,
+	},
+	{
+		Kind: KindLease, Title: "Leases", Category: CategoryConfig,
+		Group: "coordination.k8s.io", Version: "v1", Resource: "leases", Namespaced: true,
+	},
+	{
+		Kind: KindMutatingWebhook, Title: "Mutating Webhook Configurations", Category: CategoryConfig,
+		Group: "admissionregistration.k8s.io", Version: "v1", Resource: "mutatingwebhookconfigurations", Namespaced: false,
+	},
+	{
+		Kind: KindValidatingWebhook, Title: "Validating Webhook Configurations", Category: CategoryConfig,
+		Group: "admissionregistration.k8s.io", Version: "v1", Resource: "validatingwebhookconfigurations", Namespaced: false,
 	},
 
 	{
@@ -95,12 +150,24 @@ var catalogue = []KindInfo{
 		},
 	},
 	{
+		Kind: KindEndpointSlice, Title: "Endpoint Slices", Category: CategoryNetwork,
+		Group: "discovery.k8s.io", Version: "v1", Resource: "endpointslices", Namespaced: true,
+	},
+	{
+		Kind: KindEndpoints, Title: "Endpoints", Category: CategoryNetwork,
+		Version: "v1", Resource: "endpoints", Namespaced: true,
+	},
+	{
 		Kind: KindIngress, Title: "Ingresses", Category: CategoryNetwork,
 		Group: "networking.k8s.io", Version: "v1", Resource: "ingresses", Namespaced: true,
 		Columns: []Column{
 			{Key: "class", Title: "Class"},
 			{Key: "hosts", Title: "Hosts"},
 		},
+	},
+	{
+		Kind: KindIngressClass, Title: "Ingress Classes", Category: CategoryNetwork,
+		Group: "networking.k8s.io", Version: "v1", Resource: "ingressclasses", Namespaced: false,
 	},
 	{
 		Kind: KindNetworkPolicy, Title: "Network Policies", Category: CategoryNetwork,
@@ -133,45 +200,13 @@ var catalogue = []KindInfo{
 	},
 
 	{
-		Kind: KindServiceAccount, Title: "Service Accounts", Category: CategoryAccess,
-		Version: "v1", Resource: "serviceaccounts", Namespaced: true,
-	},
-	{
-		Kind: KindRole, Title: "Roles", Category: CategoryAccess,
-		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles", Namespaced: true,
-	},
-	{
-		Kind: KindRoleBinding, Title: "Role Bindings", Category: CategoryAccess,
-		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings", Namespaced: true,
-	},
-	{
-		Kind: KindClusterRole, Title: "Cluster Roles", Category: CategoryAccess,
-		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles", Namespaced: false,
-	},
-	{
-		Kind: KindClusterRoleBinding, Title: "Cluster Role Bindings", Category: CategoryAccess,
-		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings", Namespaced: false,
-	},
-
-	{
 		Kind: KindNamespace, Title: "Namespaces", Category: CategoryCluster,
-		Version: "v1", Resource: "namespaces", Namespaced: false,
+		Version: "v1", Resource: "namespaces", Namespaced: false, Standalone: true,
 		Columns: []Column{{Key: "status", Title: "Status"}},
 	},
 	{
-		Kind: KindNode, Title: "Nodes", Category: CategoryCluster,
-		Version: "v1", Resource: "nodes", Namespaced: false,
-		Columns: []Column{
-			{Key: "status", Title: "Status"},
-			{Key: "roles", Title: "Roles"},
-			{Key: "version", Title: "Version", Mono: true},
-			{Key: "cpu", Title: "CPU", Mono: true},
-			{Key: "memory", Title: "Memory", Mono: true},
-		},
-	},
-	{
 		Kind: KindEvent, Title: "Events", Category: CategoryCluster,
-		Version: "v1", Resource: "events", Namespaced: true,
+		Version: "v1", Resource: "events", Namespaced: true, Standalone: true,
 		Columns: []Column{
 			{Key: "type", Title: "Type"},
 			{Key: "reason", Title: "Reason"},
@@ -179,6 +214,27 @@ var catalogue = []KindInfo{
 			{Key: "message", Title: "Message"},
 			{Key: "count", Title: "Count", Mono: true},
 		},
+	},
+
+	{
+		Kind: KindServiceAccount, Title: "Service Accounts", Category: CategoryAccess,
+		Version: "v1", Resource: "serviceaccounts", Namespaced: true,
+	},
+	{
+		Kind: KindClusterRole, Title: "Cluster Roles", Category: CategoryAccess,
+		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles", Namespaced: false,
+	},
+	{
+		Kind: KindRole, Title: "Roles", Category: CategoryAccess,
+		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles", Namespaced: true,
+	},
+	{
+		Kind: KindClusterRoleBinding, Title: "Cluster Role Bindings", Category: CategoryAccess,
+		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings", Namespaced: false,
+	},
+	{
+		Kind: KindRoleBinding, Title: "Role Bindings", Category: CategoryAccess,
+		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings", Namespaced: true,
 	},
 }
 

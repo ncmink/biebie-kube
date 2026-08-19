@@ -45,7 +45,7 @@ async function connectAccess() {
     <ClusterTabs />
 
     <div class="flex min-h-0 flex-1">
-      <aside class="flex w-60 shrink-0 flex-col border-r border-line bg-surface-1">
+      <aside class="flex w-64 shrink-0 flex-col border-r border-line bg-surface-1">
         <NamespaceSelector :cluster-id="clusterId" :disabled="!connected" />
         <ResourceNav :cluster-id="clusterId" class="min-h-0 flex-1" />
       </aside>

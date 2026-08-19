@@ -27,6 +27,13 @@ func (s *ResourceService) WatchResources(clusterID, kind, namespace string) erro
 	return describe(s.core.resources.Watch(clusterID, domain.Kind(kind), namespace))
 }
 
+// CountResources reports which kinds have objects in the current namespace,
+// so the sidebar can fade empty entries.
+func (s *ResourceService) CountResources(ctx context.Context, clusterID, namespace string) ([]domain.KindPresence, error) {
+	counts, err := s.core.resources.Counts(ctx, clusterID, namespace)
+	return counts, describe(err)
+}
+
 // InspectResource returns the right-hand inspector payload for one object.
 //
 // ConfigMap and Secret data values are the stored encoding. Secret `data` is

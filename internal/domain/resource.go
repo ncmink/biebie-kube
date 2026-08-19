@@ -24,29 +24,42 @@ type Kind string
 
 // Built-in kinds covered by the MVP navigation.
 const (
-	KindPod                   Kind = "pods"
-	KindDeployment            Kind = "deployments"
-	KindStatefulSet           Kind = "statefulsets"
-	KindDaemonSet             Kind = "daemonsets"
-	KindJob                   Kind = "jobs"
-	KindCronJob               Kind = "cronjobs"
-	KindReplicaSet            Kind = "replicasets"
-	KindConfigMap             Kind = "configmaps"
-	KindSecret                Kind = "secrets"
-	KindService               Kind = "services"
-	KindIngress               Kind = "ingresses"
-	KindNetworkPolicy         Kind = "networkpolicies"
-	KindPersistentVolume      Kind = "persistentvolumes"
-	KindPersistentVolumeClaim Kind = "persistentvolumeclaims"
-	KindStorageClass          Kind = "storageclasses"
-	KindServiceAccount        Kind = "serviceaccounts"
-	KindRole                  Kind = "roles"
-	KindRoleBinding           Kind = "rolebindings"
-	KindClusterRole           Kind = "clusterroles"
-	KindClusterRoleBinding    Kind = "clusterrolebindings"
-	KindNamespace             Kind = "namespaces"
-	KindNode                  Kind = "nodes"
-	KindEvent                 Kind = "events"
+	KindPod                     Kind = "pods"
+	KindDeployment              Kind = "deployments"
+	KindStatefulSet             Kind = "statefulsets"
+	KindDaemonSet               Kind = "daemonsets"
+	KindJob                     Kind = "jobs"
+	KindCronJob                 Kind = "cronjobs"
+	KindReplicaSet              Kind = "replicasets"
+	KindReplicationController   Kind = "replicationcontrollers"
+	KindConfigMap               Kind = "configmaps"
+	KindSecret                  Kind = "secrets"
+	KindResourceQuota           Kind = "resourcequotas"
+	KindLimitRange              Kind = "limitranges"
+	KindHorizontalPodAutoscaler Kind = "horizontalpodautoscalers"
+	KindPodDisruptionBudget     Kind = "poddisruptionbudgets"
+	KindPriorityClass           Kind = "priorityclasses"
+	KindRuntimeClass            Kind = "runtimeclasses"
+	KindLease                   Kind = "leases"
+	KindMutatingWebhook         Kind = "mutatingwebhookconfigurations"
+	KindValidatingWebhook       Kind = "validatingwebhookconfigurations"
+	KindService                 Kind = "services"
+	KindEndpointSlice           Kind = "endpointslices"
+	KindEndpoints               Kind = "endpoints"
+	KindIngress                 Kind = "ingresses"
+	KindIngressClass            Kind = "ingressclasses"
+	KindNetworkPolicy           Kind = "networkpolicies"
+	KindPersistentVolume        Kind = "persistentvolumes"
+	KindPersistentVolumeClaim   Kind = "persistentvolumeclaims"
+	KindStorageClass            Kind = "storageclasses"
+	KindServiceAccount          Kind = "serviceaccounts"
+	KindRole                    Kind = "roles"
+	KindRoleBinding             Kind = "rolebindings"
+	KindClusterRole             Kind = "clusterroles"
+	KindClusterRoleBinding      Kind = "clusterrolebindings"
+	KindNamespace               Kind = "namespaces"
+	KindNode                    Kind = "nodes"
+	KindEvent                   Kind = "events"
 )
 
 // Category groups kinds in the sidebar.
@@ -58,7 +71,7 @@ const (
 	CategoryConfig    Category = "Config"
 	CategoryNetwork   Category = "Network"
 	CategoryStorage   Category = "Storage"
-	CategoryAccess    Category = "Access"
+	CategoryAccess    Category = "Access Control"
 	CategoryCluster   Category = "Cluster"
 )
 
@@ -81,6 +94,10 @@ type KindInfo struct {
 	// Sensitive marks kinds whose values must stay masked until the user asks
 	// for them explicitly.
 	Sensitive bool `json:"sensitive"`
+
+	// Standalone sits outside a collapsible group, the way Nodes, Namespaces
+	// and Events do in the sidebar.
+	Standalone bool `json:"standalone,omitempty"`
 }
 
 // Column describes one kind-specific table column.
@@ -250,6 +267,14 @@ type SearchHit struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
 	Health    Health `json:"health"`
+}
+
+// KindPresence is how many objects of a kind exist in the current namespace
+// (or cluster-wide for cluster-scoped kinds). Zero means the sidebar should
+// fade that entry.
+type KindPresence struct {
+	Kind  Kind `json:"kind"`
+	Count int  `json:"count"`
 }
 
 // DataEntry is one key from a ConfigMap or Secret `data` (or `binaryData`) map.

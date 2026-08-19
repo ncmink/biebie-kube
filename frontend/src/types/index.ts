@@ -38,6 +38,7 @@ export type {
   Diagnosis,
   EventRow,
   KindInfo,
+  KindPresence,
   LogChunk,
   LogOptions,
   PodDetail,

@@ -31,6 +31,7 @@ var renderers = map[domain.Kind]renderer{
 	domain.KindCronJob:               renderCronJob,
 	domain.KindConfigMap:             renderConfigMap,
 	domain.KindSecret:                renderSecret,
+	domain.KindPodDisruptionBudget:   renderPDB,
 	domain.KindService:               renderService,
 	domain.KindIngress:               renderIngress,
 	domain.KindPersistentVolumeClaim: renderPVC,
@@ -265,6 +266,19 @@ func renderSecret(obj *unstructured.Unstructured) (domain.Health, string, map[st
 	}
 }
 
+func renderPDB(obj *unstructured.Unstructured) (domain.Health, string, map[string]string) {
+	current := nestedInt(obj, "status", "currentHealthy")
+	desired := nestedInt(obj, "status", "desiredHealthy")
+	health := domain.HealthHealthy
+	if desired > 0 && current < desired {
+		health = domain.HealthWarning
+	}
+	return health, "", map[string]string{
+		"minAvailable": displayOrNA(intOrString(obj, "spec", "minAvailable")),
+		"healthy":      fmt.Sprintf("%d/%d", current, desired),
+	}
+}
+
 func renderService(obj *unstructured.Unstructured) (domain.Health, string, map[string]string) {
 	serviceType := nestedString(obj, "spec", "type")
 	if serviceType == "" {
@@ -466,6 +480,34 @@ func nestedInt(obj *unstructured.Unstructured, fields ...string) int64 {
 
 func nestedSlice(obj *unstructured.Unstructured, fields ...string) []any {
 	value, _, _ := unstructured.NestedSlice(obj.Object, fields...)
+	return value
+}
+
+func intOrString(obj *unstructured.Unstructured, fields ...string) string {
+	raw, found, _ := unstructured.NestedFieldNoCopy(obj.Object, fields...)
+	if !found || raw == nil {
+		return ""
+	}
+	switch v := raw.(type) {
+	case string:
+		return v
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int:
+		return strconv.Itoa(v)
+	case float64:
+		return strconv.FormatInt(int64(v), 10)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func displayOrNA(value string) string {
+	if value == "" {
+		return "N/A"
+	}
 	return value
 }
 

@@ -45,6 +45,7 @@ export type {
   PortForwardRequest,
   PortForwardSession,
   Probe,
+  InspectProperty,
   ResourcePage,
   ResourceRef,
   ResourceInspect,

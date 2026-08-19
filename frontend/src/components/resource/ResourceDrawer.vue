@@ -49,6 +49,22 @@ const error = ref('')
 const loading = ref(false)
 const yamlOpen = ref(false)
 const deleting = ref(false)
+const labelsOpen = ref(false)
+const annotationsOpen = ref(false)
+
+const labels = computed(() => inspect.value?.labels ?? {})
+const annotations = computed(() => inspect.value?.annotations ?? {})
+const labelCount = computed(() => Object.keys(labels.value).length)
+const annotationCount = computed(() => Object.keys(annotations.value).length)
+const labelPairs = computed(() => sortedPairs(labels.value))
+const annotationPairs = computed(() => sortedPairs(annotations.value))
+const extraProperties = computed(() => inspect.value?.properties ?? [])
+
+function sortedPairs(record: { [_ in string]?: string } | null | undefined): [string, string][] {
+  return Object.entries(record ?? {})
+    .filter((entry): entry is [string, string] => entry[1] != null)
+    .sort(([a], [b]) => a.localeCompare(b))
+}
 
 const drawerWidthKey = 'biebie-kube.drawer-width'
 const minWidth = 320
@@ -97,6 +113,8 @@ async function load() {
   loading.value = true
   error.value = ''
   yamlOpen.value = false
+  labelsOpen.value = false
+  annotationsOpen.value = false
   try {
     inspect.value = await api.inspectResource(props.clusterId, ref_.value)
   } catch (err) {
@@ -203,22 +221,65 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
           <h2 class="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
             Properties
           </h2>
-          <dl class="mt-3 space-y-2 text-xs">
-            <div class="grid grid-cols-[7rem_1fr] gap-2">
+          <dl class="mt-3 space-y-2.5 text-xs">
+            <div class="grid grid-cols-[8.5rem_1fr] gap-2">
               <dt class="text-ink-faint">Created</dt>
               <dd class="text-ink">{{ agoClock(inspect?.createdAt ?? row.createdAt) }}</dd>
             </div>
-            <div class="grid grid-cols-[7rem_1fr] gap-2">
+            <div class="grid grid-cols-[8.5rem_1fr] gap-2">
               <dt class="text-ink-faint">Name</dt>
               <dd class="truncate font-mono text-ink">{{ row.name }}</dd>
             </div>
-            <div v-if="row.namespace" class="grid grid-cols-[7rem_1fr] gap-2">
+            <div v-if="row.namespace" class="grid grid-cols-[8.5rem_1fr] gap-2">
               <dt class="text-ink-faint">Namespace</dt>
               <dd class="truncate font-mono text-ink">{{ row.namespace }}</dd>
             </div>
-            <div v-if="inspect?.type || row.fields?.type" class="grid grid-cols-[7rem_1fr] gap-2">
+            <div v-if="inspect?.type || row.fields?.type" class="grid grid-cols-[8.5rem_1fr] gap-2">
               <dt class="text-ink-faint">Type</dt>
               <dd class="text-ink">{{ inspect?.type || row.fields?.type }}</dd>
+            </div>
+            <div class="grid grid-cols-[8.5rem_1fr] gap-2">
+              <dt class="text-ink-faint">Labels</dt>
+              <dd>
+                <button class="text-brand hover:underline" @click="labelsOpen = !labelsOpen">
+                  {{ labelCount }} {{ labelCount === 1 ? 'Label' : 'Labels' }}
+                </button>
+                <ul v-if="labelsOpen" class="mt-1.5 space-y-1">
+                  <li v-for="[key, value] in labelPairs" :key="key" class="break-all font-mono text-ink-muted">
+                    {{ key }}={{ value }}
+                  </li>
+                </ul>
+              </dd>
+            </div>
+            <div class="grid grid-cols-[8.5rem_1fr] gap-2">
+              <dt class="text-ink-faint">Annotations</dt>
+              <dd>
+                <button class="text-brand hover:underline" @click="annotationsOpen = !annotationsOpen">
+                  {{ annotationCount }} {{ annotationCount === 1 ? 'Annotation' : 'Annotations' }}
+                </button>
+                <ul v-if="annotationsOpen" class="mt-1.5 space-y-1">
+                  <li
+                    v-for="[key, value] in annotationPairs"
+                    :key="key"
+                    class="break-all font-mono text-ink-muted"
+                  >
+                    {{ key }}={{ value }}
+                  </li>
+                </ul>
+              </dd>
+            </div>
+            <div
+              v-for="prop in extraProperties"
+              :key="prop.label"
+              class="grid grid-cols-[8.5rem_1fr] gap-2"
+            >
+              <dt class="text-ink-faint">{{ prop.label }}</dt>
+              <dd
+                class="whitespace-pre-wrap break-all text-ink"
+                :class="prop.mono ? 'font-mono' : ''"
+              >
+                {{ prop.value }}
+              </dd>
             </div>
           </dl>
         </section>

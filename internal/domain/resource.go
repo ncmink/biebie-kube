@@ -300,5 +300,18 @@ type ResourceInspect struct {
 	// Type is a Secret's type (Opaque, kubernetes.io/tls, …).
 	Type string `json:"type,omitempty"`
 
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+
+	// Properties are kind-specific inspector rows (selector, replica counts, …).
+	Properties []InspectProperty `json:"properties,omitempty"`
+
 	Data []DataEntry `json:"data,omitempty"`
+}
+
+// InspectProperty is one extra row in the right-hand inspector.
+type InspectProperty struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Mono  bool   `json:"mono,omitempty"`
 }

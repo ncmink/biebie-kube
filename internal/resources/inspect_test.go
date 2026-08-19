@@ -2,6 +2,7 @@ package resources
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"biebie-kube/internal/domain"
@@ -69,6 +70,42 @@ func TestInspectConfigMapKeepsPlainDataAndBinaryAsStored(t *testing.T) {
 	}
 	if byKey["blob"].Value != "AQID" || !byKey["blob"].Binary {
 		t.Fatalf("binary data = %+v", byKey["blob"])
+	}
+}
+
+func TestInspectPDBShowsSelectorAndHealthyCounts(t *testing.T) {
+	pdb := object(t, `{
+		"metadata": {
+			"name": "argocd-application-controller",
+			"namespace": "argo-ns",
+			"labels": {"app.kubernetes.io/name": "argocd-application-controller"}
+		},
+		"spec": {
+			"minAvailable": 1,
+			"selector": {"matchLabels": {
+				"app.kubernetes.io/instance": "argocd",
+				"app.kubernetes.io/name": "argocd-application-controller"
+			}}
+		},
+		"status": {"currentHealthy": 3, "desiredHealthy": 1}
+	}`)
+
+	got := Inspect(domain.KindPodDisruptionBudget, pdb)
+	if got.Labels["app.kubernetes.io/name"] != "argocd-application-controller" {
+		t.Fatalf("labels = %+v", got.Labels)
+	}
+	byLabel := map[string]string{}
+	for _, prop := range got.Properties {
+		byLabel[prop.Label] = prop.Value
+	}
+	if !strings.Contains(byLabel["Selector"], "app.kubernetes.io/instance=argocd") {
+		t.Fatalf("selector = %q", byLabel["Selector"])
+	}
+	if byLabel["Min Available"] != "1" || byLabel["Max Unavailable"] != "N/A" {
+		t.Fatalf("availability = %+v", byLabel)
+	}
+	if byLabel["Current Healthy"] != "3" || byLabel["Desired Healthy"] != "1" {
+		t.Fatalf("healthy = %+v", byLabel)
 	}
 }
 

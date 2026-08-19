@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -22,7 +24,15 @@ func Inspect(kind domain.Kind, obj *unstructured.Unstructured) domain.ResourceIn
 			Namespace: obj.GetNamespace(),
 			Name:      obj.GetName(),
 		},
-		CreatedAt: obj.GetCreationTimestamp().Time,
+		CreatedAt:   obj.GetCreationTimestamp().Time,
+		Labels:      obj.GetLabels(),
+		Annotations: obj.GetAnnotations(),
+	}
+	if out.Labels == nil {
+		out.Labels = map[string]string{}
+	}
+	if out.Annotations == nil {
+		out.Annotations = map[string]string{}
 	}
 
 	switch kind {
@@ -32,6 +42,8 @@ func Inspect(kind domain.Kind, obj *unstructured.Unstructured) domain.ResourceIn
 	case domain.KindConfigMap:
 		out.Data = append(dataEntries(obj, "data", false), dataEntries(obj, "binaryData", true)...)
 		sort.Slice(out.Data, func(i, j int) bool { return out.Data[i].Key < out.Data[j].Key })
+	case domain.KindPodDisruptionBudget:
+		out.Properties = inspectPDB(obj)
 	}
 
 	return out
@@ -44,6 +56,33 @@ func (s *Service) InspectResource(ctx context.Context, clusterID string, ref dom
 		return domain.ResourceInspect{}, err
 	}
 	return Inspect(ref.Kind, obj), nil
+}
+
+func inspectPDB(obj *unstructured.Unstructured) []domain.InspectProperty {
+	return []domain.InspectProperty{
+		{Label: "Selector", Value: selectorString(obj), Mono: true},
+		{Label: "Min Available", Value: displayOrNA(intOrString(obj, "spec", "minAvailable"))},
+		{Label: "Max Unavailable", Value: displayOrNA(intOrString(obj, "spec", "maxUnavailable"))},
+		{Label: "Current Healthy", Value: strconv.FormatInt(nestedInt(obj, "status", "currentHealthy"), 10)},
+		{Label: "Desired Healthy", Value: strconv.FormatInt(nestedInt(obj, "status", "desiredHealthy"), 10)},
+	}
+}
+
+func selectorString(obj *unstructured.Unstructured) string {
+	labels, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "selector", "matchLabels")
+	if len(labels) == 0 {
+		return "N/A"
+	}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+labels[key])
+	}
+	return strings.Join(parts, "\n")
 }
 
 func dataEntries(obj *unstructured.Unstructured, field string, binary bool) []domain.DataEntry {

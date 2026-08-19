@@ -118,6 +118,10 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindPodDisruptionBudget, Title: "Pod Disruption Budgets", Category: CategoryConfig,
 		Group: "policy", Version: "v1", Resource: "poddisruptionbudgets", Namespaced: true,
+		Columns: []Column{
+			{Key: "minAvailable", Title: "Min available", Mono: true},
+			{Key: "healthy", Title: "Healthy", Mono: true},
+		},
 	},
 	{
 		Kind: KindPriorityClass, Title: "Priority Classes", Category: CategoryConfig,

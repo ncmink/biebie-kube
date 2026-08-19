@@ -50,6 +50,48 @@ const loading = ref(false)
 const yamlOpen = ref(false)
 const deleting = ref(false)
 
+const drawerWidthKey = 'biebie-kube.drawer-width'
+const minWidth = 320
+const defaultWidth = 448
+
+const width = ref(readWidth())
+const dragging = ref(false)
+
+function readWidth(): number {
+  const stored = Number(localStorage.getItem(drawerWidthKey))
+  return Number.isFinite(stored) && stored >= minWidth ? stored : defaultWidth
+}
+
+function maxWidth(): number {
+  return Math.max(minWidth, window.innerWidth - 280)
+}
+
+function startResize(event: PointerEvent) {
+  const handle = event.currentTarget as HTMLElement
+  handle.setPointerCapture(event.pointerId)
+  dragging.value = true
+  const originX = event.clientX
+  const originWidth = width.value
+
+  const move = (next: PointerEvent) => {
+    // The drawer is docked on the right: dragging the left edge leftward
+    // makes it wider.
+    width.value = Math.min(maxWidth(), Math.max(minWidth, originWidth + (originX - next.clientX)))
+  }
+  const stop = (next: PointerEvent) => {
+    handle.releasePointerCapture(next.pointerId)
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', stop)
+    handle.removeEventListener('pointercancel', stop)
+    dragging.value = false
+    localStorage.setItem(drawerWidthKey, String(Math.round(width.value)))
+  }
+
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', stop)
+  handle.addEventListener('pointercancel', stop)
+}
+
 async function load() {
   if (!ref_.value) return
   loading.value = true
@@ -87,7 +129,19 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
 </script>
 
 <template>
-  <aside class="flex h-full min-h-0 w-[28rem] shrink-0 flex-col border-l border-line bg-surface-1">
+  <aside
+    class="relative flex h-full min-h-0 shrink-0 flex-col border-l border-line bg-surface-1"
+    :class="dragging ? 'select-none' : ''"
+    :style="{ width: `${width}px` }"
+  >
+    <div
+      class="no-drag absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-brand/40"
+      :class="dragging ? 'bg-brand/50' : ''"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize drawer"
+      @pointerdown.prevent="startResize"
+    />
     <header class="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3">
       <h1 class="min-w-0 truncate text-sm font-semibold text-ink">
         {{ heading }}: {{ row.name }}

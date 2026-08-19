@@ -1,0 +1,179 @@
+package main
+
+import (
+	"context"
+	"strings"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"biebie-kube/internal/domain"
+	"biebie-kube/internal/kubeconfig"
+)
+
+// ClusterService is the frontend's door to cluster configuration and the
+// connection lifecycle.
+type ClusterService struct{ core *Core }
+
+// ServiceName is what appears in Wails logs and in the generated bindings
+// directory, so it is the product's own name rather than the Go type's.
+func (s *ClusterService) ServiceName() string { return "ClusterService" }
+
+// ClusterView is a cluster plus its live session, which is what every screen
+// needs together.
+type ClusterView struct {
+	Cluster domain.Cluster `json:"cluster"`
+	Session domain.Session `json:"session"`
+}
+
+// ListClusters returns every cluster with its current state.
+func (s *ClusterService) ListClusters() []ClusterView {
+	clusters := s.core.clusters.Clusters()
+	out := make([]ClusterView, 0, len(clusters))
+	for _, cluster := range clusters {
+		out = append(out, ClusterView{Cluster: cluster, Session: s.core.clusters.Session(cluster.ID)})
+	}
+	return out
+}
+
+// GetCluster returns one cluster with its state.
+func (s *ClusterService) GetCluster(clusterID string) (ClusterView, error) {
+	cluster, err := s.core.clusters.Cluster(clusterID)
+	if err != nil {
+		return ClusterView{}, describe(err)
+	}
+	return ClusterView{Cluster: cluster, Session: s.core.clusters.Session(clusterID)}, nil
+}
+
+// CreateCluster adds a cluster from a kubeconfig context.
+//
+// The API endpoint is read from the kubeconfig rather than typed by the user:
+// it has to match what client-go will actually dial, or the reachability probe
+// would test a different address from the one that fails.
+func (s *ClusterService) CreateCluster(input domain.ClusterInput) (ClusterView, error) {
+	server, err := s.serverFor(input)
+	if err != nil {
+		return ClusterView{}, describe(err)
+	}
+	cluster, err := s.core.clusters.Repository().Create(input, server)
+	if err != nil {
+		return ClusterView{}, describe(err)
+	}
+	return ClusterView{Cluster: cluster, Session: s.core.clusters.Session(cluster.ID)}, nil
+}
+
+// UpdateCluster edits a cluster.
+func (s *ClusterService) UpdateCluster(clusterID string, input domain.ClusterInput) (ClusterView, error) {
+	server, err := s.serverFor(input)
+	if err != nil {
+		return ClusterView{}, describe(err)
+	}
+	cluster, err := s.core.clusters.Repository().Update(clusterID, input, server)
+	if err != nil {
+		return ClusterView{}, describe(err)
+	}
+	return ClusterView{Cluster: cluster, Session: s.core.clusters.Session(cluster.ID)}, nil
+}
+
+// DeleteCluster forgets a cluster. The kubeconfig it referenced is untouched.
+func (s *ClusterService) DeleteCluster(clusterID string) error {
+	s.core.forwards.StopCluster(clusterID)
+	s.core.clusters.Disconnect(clusterID)
+	return describe(s.core.clusters.Repository().Delete(clusterID))
+}
+
+// ConnectCluster runs the connection sequence and returns the resulting state.
+func (s *ClusterService) ConnectCluster(ctx context.Context, clusterID string) (domain.Session, error) {
+	session, err := s.core.clusters.Connect(ctx, clusterID)
+	return session, describe(err)
+}
+
+// DisconnectCluster ends a session and everything hanging off it.
+func (s *ClusterService) DisconnectCluster(clusterID string) domain.Session {
+	s.core.forwards.StopCluster(clusterID)
+	return s.core.clusters.Disconnect(clusterID)
+}
+
+// GetSession reports one cluster's state.
+func (s *ClusterService) GetSession(clusterID string) domain.Session {
+	return s.core.clusters.Session(clusterID)
+}
+
+// ListSessions reports every cluster's state.
+func (s *ClusterService) ListSessions() []domain.Session { return s.core.clusters.Sessions() }
+
+// ListNamespaces returns the namespaces read when the cluster connected.
+func (s *ClusterService) ListNamespaces(clusterID string) []string {
+	return s.core.clusters.Namespaces(clusterID)
+}
+
+// SetNamespace changes the namespace in view and remembers it for next time.
+func (s *ClusterService) SetNamespace(clusterID, namespace string) error {
+	return describe(s.core.clusters.SetNamespace(clusterID, namespace))
+}
+
+// ListKubeconfigs returns the imported kubeconfigs and their contexts.
+func (s *ClusterService) ListKubeconfigs() []kubeconfig.File { return s.core.configs.List() }
+
+// ImportKubeconfig indexes a kubeconfig file.
+func (s *ClusterService) ImportKubeconfig(opts kubeconfig.ImportOptions) (kubeconfig.File, error) {
+	file, err := s.core.configs.Import(opts)
+	return file, describe(err)
+}
+
+// ImportDefaultKubeconfig indexes ~/.kube/config, the file most engineers
+// already have, so the common case needs no file picker.
+func (s *ClusterService) ImportDefaultKubeconfig() (kubeconfig.File, error) {
+	file, err := s.core.configs.ImportDefault()
+	return file, describe(err)
+}
+
+// ChooseKubeconfig opens the native file picker and returns the chosen path.
+// The frontend cannot read the filesystem, so the path must come from here.
+func (s *ClusterService) ChooseKubeconfig() (string, error) {
+	dialog := application.Get().Dialog.OpenFile()
+	dialog.SetTitle("Select a kubeconfig")
+	dialog.CanChooseFiles(true)
+	dialog.AllowsOtherFileTypes(true)
+	// A kubeconfig is often named plain "config" with no extension, so the
+	// filter cannot be extension-only without hiding the usual file.
+	dialog.AddFilter("Kubeconfig", "*.yaml;*.yml;*.conf;config")
+
+	path, err := dialog.PromptForSingleSelection()
+	return path, describe(err)
+}
+
+// ForgetKubeconfig removes a reference to a kubeconfig.
+func (s *ClusterService) ForgetKubeconfig(ref string) error {
+	return describe(s.core.configs.Forget(ref))
+}
+
+// ResourceCatalogue returns the navigation tree, filtered to what this cluster
+// actually serves so the sidebar does not offer kinds that will 404.
+func (s *ClusterService) ResourceCatalogue(clusterID string) []domain.KindInfo {
+	full := domain.Catalogue()
+	served := s.core.clusters.APIResources(clusterID)
+	if len(served) == 0 {
+		return full
+	}
+
+	available := make(map[string]struct{}, len(served))
+	for _, resource := range served {
+		available[resource.Group+"/"+resource.Resource] = struct{}{}
+	}
+
+	out := make([]domain.KindInfo, 0, len(full))
+	for _, info := range full {
+		if _, ok := available[info.Group+"/"+info.Resource]; ok {
+			out = append(out, info)
+		}
+	}
+	return out
+}
+
+func (s *ClusterService) serverFor(input domain.ClusterInput) (string, error) {
+	path, err := s.core.configs.PathFor(strings.TrimSpace(input.KubeconfigRef))
+	if err != nil {
+		return "", err
+	}
+	return kubeconfig.ServerFor(path, input.ContextName)
+}

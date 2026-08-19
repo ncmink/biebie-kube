@@ -1,0 +1,121 @@
+@import 'tailwindcss';
+
+/* The palette is shared with Biebie Access: the two applications are siblings,
+   and an engineer moving between them should not feel a change of product.
+   Dark is the default because that is where this work happens. */
+@theme {
+  --color-surface-0: #1c1d1f;
+  --color-surface-1: #111114;
+  --color-surface-2: #17171c;
+  --color-surface-3: #1f1f26;
+  --color-menu: #262628;
+  --color-menu-button: #222325;
+  --color-line: #2a2a33;
+  --color-line-strong: #3a3a46;
+
+  --color-ink: #f4f4f5;
+  --color-ink-muted: #a1a1aa;
+  --color-ink-faint: #71717a;
+
+  --color-brand: #cbb6e8;
+  --color-brand-strong: #b89ad9;
+
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-bad: #ef4444;
+  --color-info: #38bdf8;
+
+  --font-sans: 'Nunito', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+}
+
+/* Light appearance re-points the same tokens, so every component keeps working
+   without a second set of classes. */
+.theme-light {
+  --color-surface-0: #f7f7f8;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #ffffff;
+  --color-surface-3: #f1f1f4;
+  --color-menu: #ffffff;
+  --color-menu-button: #f1f1f4;
+  --color-line: #e4e4e8;
+  --color-line-strong: #cfcfd6;
+
+  --color-ink: #1c1d1f;
+  --color-ink-muted: #52525b;
+  --color-ink-faint: #8a8a94;
+
+  --color-brand: #7c5cad;
+  --color-brand-strong: #6b4b9c;
+
+  --color-ok: #15803d;
+  --color-warn: #b45309;
+  --color-bad: #b91c1c;
+  --color-info: #0369a1;
+}
+
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/nunito-v16-latin-regular.woff2') format('woff2');
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-surface-0);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* The macOS window uses a hidden inset title bar, so the top strip must be
+   draggable for the window to be movable. */
+.drag-region {
+  --wails-draggable: drag;
+}
+
+.no-drag {
+  --wails-draggable: no-drag;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+/* Production is marked with a repeating hazard band as well as colour, so the
+   warning survives a colour-blind viewer and a washed-out external monitor. */
+.production-band {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-warn) 45%, transparent) 0 8px,
+    transparent 8px 16px
+  );
+}

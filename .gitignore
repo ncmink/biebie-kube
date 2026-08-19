@@ -1,0 +1,10 @@
+.task
+bin
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+
+# Bindings are generated from the Go services on every build. Committing them
+# would let a stale copy disagree with the Go code that produced it.
+frontend/bindings

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Biebie Kube
+Comment=Kubernetes workspace for the biebie.net family.
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/biebie-kube %u
+Terminal=false
+Type=Application
+Icon=biebie-kube
+Categories=Utility;
+StartupWMClass=biebie-kube
+
+MimeType=x-scheme-handler/biebie-kube; 

@@ -24,10 +24,10 @@ import (
 	"syscall"
 	"time"
 
-	bctx "biebie.net/protocol/context"
-	"biebie.net/protocol/deeplink"
-	"biebie.net/protocol/handoff"
-	"biebie.net/protocol/ipc"
+	bctx "biebie-kube/protocol/context"
+	"biebie-kube/protocol/deeplink"
+	"biebie-kube/protocol/handoff"
+	"biebie-kube/protocol/ipc"
 )
 
 func main() {

@@ -3,7 +3,7 @@ package domain
 import (
 	"testing"
 
-	bctx "biebie.net/protocol/context"
+	bctx "biebie-kube/protocol/context"
 )
 
 func TestClusterHostPortDefaultsToHTTPSPort(t *testing.T) {

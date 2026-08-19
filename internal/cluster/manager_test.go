@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	bctx "biebie.net/protocol/context"
+	bctx "biebie-kube/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"

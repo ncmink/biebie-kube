@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	bctx "biebie.net/protocol/context"
-	"biebie.net/protocol/deeplink"
-	"biebie.net/protocol/ipc"
+	bctx "biebie-kube/protocol/context"
+	"biebie-kube/protocol/deeplink"
+	"biebie-kube/protocol/ipc"
 )
 
 // Server is Biebie Kube's own local endpoint.

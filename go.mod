@@ -3,7 +3,7 @@ module biebie-kube
 go 1.25.0
 
 require (
-	biebie.net/protocol v0.0.0
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/google/uuid v1.6.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.9
 	k8s.io/api v0.34.1
@@ -14,7 +14,6 @@ require (
 )
 
 require (
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -64,5 +63,3 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
-
-replace biebie.net/protocol => ../biebie-protocol

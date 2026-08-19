@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	bctx "biebie.net/protocol/context"
-	"biebie.net/protocol/handoff"
-	"biebie.net/protocol/ipc"
+	bctx "biebie-kube/protocol/context"
+	"biebie-kube/protocol/handoff"
+	"biebie-kube/protocol/ipc"
 )
 
 // fakeAccess is a stand-in for Biebie Access speaking the real protocol on a

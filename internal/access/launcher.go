@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"biebie.net/protocol/deeplink"
+	"biebie-kube/protocol/deeplink"
 )
 
 // Launcher opens Biebie Access from Biebie Kube.

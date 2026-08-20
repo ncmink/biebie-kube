@@ -153,14 +153,28 @@ async function save() {
       <div class="mt-5 space-y-4">
         <div>
           <label class="text-xs text-ink-muted">Kubeconfig</label>
-          <select
-            v-model="kubeconfigRef"
-            class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
-          >
-            <option v-for="file in files" :key="file.ref" :value="file.ref">
-              {{ file.name }} — {{ file.path }}
-            </option>
-          </select>
+          <div class="relative mt-1">
+            <select
+              v-model="kubeconfigRef"
+              class="h-10 w-full appearance-none rounded-lg border border-line bg-surface-1 px-3 pr-10 text-sm text-ink outline-none focus:border-brand"
+            >
+              <option v-for="file in files" :key="file.ref" :value="file.ref">
+                {{ file.name }} — {{ file.path }}
+              </option>
+            </select>
+            <span
+              class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-ink-faint"
+              aria-hidden="true"
+            >
+              <svg class="size-5" viewBox="0 0 20 20" fill="currentColor">
+                <path
+                  fill-rule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </span>
+          </div>
           <p v-if="selected?.error" class="mt-1 text-xs text-bad">{{ selected.error }}</p>
 
           <div class="mt-2 flex gap-2">
@@ -181,15 +195,29 @@ async function save() {
 
         <div>
           <label class="text-xs text-ink-muted">Context</label>
-          <select
-            v-model="contextName"
-            class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
-          >
-            <option value="">Select a context…</option>
-            <option v-for="context in contexts" :key="context.name" :value="context.name">
-              {{ context.name }} — {{ context.server }}
-            </option>
-          </select>
+          <div class="relative mt-1">
+            <select
+              v-model="contextName"
+              class="h-10 w-full appearance-none rounded-lg border border-line bg-surface-1 px-3 pr-10 text-sm text-ink outline-none focus:border-brand"
+            >
+              <option value="">Select a context…</option>
+              <option v-for="context in contexts" :key="context.name" :value="context.name">
+                {{ context.name }} — {{ context.server }}
+              </option>
+            </select>
+            <span
+              class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-ink-faint"
+              aria-hidden="true"
+            >
+              <svg class="size-5" viewBox="0 0 20 20" fill="currentColor">
+                <path
+                  fill-rule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </span>
+          </div>
         </div>
 
         <div class="grid gap-4 sm:grid-cols-2">
@@ -197,27 +225,41 @@ async function save() {
             <span class="text-xs text-ink-muted">Cluster name</span>
             <input
               v-model="name"
-              class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
+              class="mt-1 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 text-sm text-ink outline-none focus:border-brand"
               placeholder="RKE2 Production"
             />
           </label>
           <label class="block">
             <span class="text-xs text-ink-muted">Environment</span>
-            <select
-              v-model="environmentKind"
-              class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
-            >
-              <option :value="EnvironmentKind.EnvironmentUnknown">Unclassified</option>
-              <option :value="EnvironmentKind.EnvironmentDevelopment">Development</option>
-              <option :value="EnvironmentKind.EnvironmentStaging">Staging</option>
-              <option :value="EnvironmentKind.EnvironmentProduction">Production</option>
-            </select>
+            <div class="relative mt-1">
+              <select
+                v-model="environmentKind"
+                class="h-10 w-full appearance-none rounded-lg border border-line bg-surface-1 px-3 pr-10 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option :value="EnvironmentKind.EnvironmentUnknown">Unclassified</option>
+                <option :value="EnvironmentKind.EnvironmentDevelopment">Development</option>
+                <option :value="EnvironmentKind.EnvironmentStaging">Staging</option>
+                <option :value="EnvironmentKind.EnvironmentProduction">Production</option>
+              </select>
+              <span
+                class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-ink-faint"
+                aria-hidden="true"
+              >
+                <svg class="size-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </span>
+            </div>
           </label>
           <label class="block">
             <span class="text-xs text-ink-muted">Customer id</span>
             <input
               v-model="customerId"
-              class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 font-mono text-sm text-ink outline-none focus:border-brand"
+              class="mt-1 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 font-mono text-sm text-ink outline-none focus:border-brand"
               placeholder="smoi"
             />
           </label>
@@ -225,7 +267,7 @@ async function save() {
             <span class="text-xs text-ink-muted">Customer name</span>
             <input
               v-model="customerName"
-              class="mt-1 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
+              class="mt-1 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 text-sm text-ink outline-none focus:border-brand"
               placeholder="SMOI"
             />
           </label>
@@ -252,7 +294,7 @@ async function save() {
           <input
             v-if="requiresAccess"
             v-model="accessProfileId"
-            class="mt-3 w-full rounded-lg border border-line bg-surface-1 px-3 py-2 font-mono text-sm text-ink outline-none focus:border-brand"
+            class="mt-3 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 font-mono text-sm text-ink outline-none focus:border-brand"
             placeholder="Biebie Access profile id, for example smoi-vpn"
           />
         </div>

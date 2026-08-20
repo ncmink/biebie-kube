@@ -33,8 +33,11 @@ Unicode true
 ####
 ## Include the wails tools
 ####
-!define REQUEST_EXECUTION_LEVEL "user"
-!define WAILS_INSTALL_SCOPE "user"
+# Per-user install so in-app updates can replace the exe without admin.
+# Guarded: `wails3 task windows:package` already passes these as -D flags.
+!ifndef WAILS_INSTALL_SCOPE
+    !define WAILS_INSTALL_SCOPE "user"
+!endif
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts

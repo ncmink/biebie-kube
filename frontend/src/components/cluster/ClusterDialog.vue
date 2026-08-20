@@ -260,7 +260,7 @@ async function save() {
             <input
               v-model="customerId"
               class="mt-1 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 font-mono text-sm text-ink outline-none focus:border-brand"
-              placeholder="smoi"
+              placeholder=""
             />
           </label>
           <label class="block">
@@ -268,7 +268,7 @@ async function save() {
             <input
               v-model="customerName"
               class="mt-1 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 text-sm text-ink outline-none focus:border-brand"
-              placeholder="SMOI"
+              placeholder=""
             />
           </label>
         </div>

@@ -34,6 +34,7 @@ export type {
   ContainerInfo,
   ContainerPort,
   Counter,
+  CustomerGroup,
   DataEntry,
   Diagnosis,
   EventRow,

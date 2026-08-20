@@ -144,8 +144,18 @@ func (r *Repository) Update(id string, in domain.ClusterInput, server string) (d
 			record.ID = existing.ID
 			record.CreatedAt = existing.CreatedAt
 			record.UpdatedAt = r.now().UTC().Format(time.RFC3339)
+
+			// Whether a cluster is put away is not part of the form, and
+			// labels are metadata an import or a handoff wrote rather than
+			// something the form shows. Neither may be lost because someone
+			// corrected a cluster's name.
+			record.Archived = existing.Archived
+			if record.Labels == nil {
+				record.Labels = existing.Labels
+			}
 			data.Clusters[i] = record
 			updated = record
+			pruneCustomers(data)
 			return nil
 		}
 		return fmt.Errorf("cluster %s does not exist", id)
@@ -181,8 +191,190 @@ func (r *Repository) Delete(id string) error {
 			}
 		}
 		data.Preferences = prefs
+		pruneCustomers(data)
 		return nil
 	})
+}
+
+// Groups reports the cluster list as the dashboard shows it: one section per
+// customer, named customers by label, the clusters without one after them, and
+// the archive last.
+//
+// The archive is listed even when it holds nothing, because it is the
+// destination the "put this away" action needs. A section with no clusters is
+// not drawn, so an empty archive costs the dashboard nothing.
+func (r *Repository) Groups() []domain.CustomerGroup {
+	chosen := r.groupChoices()
+
+	var groups []domain.CustomerGroup
+	at := make(map[string]int)
+	for _, cluster := range r.All() {
+		key := cluster.GroupKey()
+		if _, ok := at[key]; !ok {
+			at[key] = len(groups)
+			groups = append(groups, domain.CustomerGroup{
+				Key:    key,
+				Label:  cluster.GroupLabel(),
+				Hidden: hiddenFor(chosen, key),
+			})
+		}
+		index := at[key]
+		groups[index].ClusterIDs = append(groups[index].ClusterIDs, cluster.ID)
+	}
+	if _, ok := at[domain.ArchivedKey]; !ok {
+		groups = append(groups, domain.CustomerGroup{
+			Key:    domain.ArchivedKey,
+			Label:  domain.ArchivedLabel,
+			Hidden: hiddenFor(chosen, domain.ArchivedKey),
+		})
+	}
+
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groupRank(groups[i].Key) != groupRank(groups[j].Key) {
+			return groupRank(groups[i].Key) < groupRank(groups[j].Key)
+		}
+		return strings.ToLower(groups[i].Label) < strings.ToLower(groups[j].Label)
+	})
+	return groups
+}
+
+// groupRank keeps the two sections that are not customers out of the alphabet:
+// clusters nobody has claimed sit after the named customers, and the archive
+// after those.
+func groupRank(key string) int {
+	switch key {
+	case domain.ArchivedKey:
+		return 2
+	case "":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// GroupHidden reports whether a section's clusters are kept off the list until
+// the engineer asks for them.
+func (r *Repository) GroupHidden(key string) bool {
+	return hiddenFor(r.groupChoices(), strings.TrimSpace(key))
+}
+
+// SetGroupHidden hides or reveals one section of the cluster list.
+//
+// A choice that matches the section's default is recorded by removing the
+// record rather than storing it, so state on disk only ever describes what
+// differs. That is also what lets a revealed archive survive a restart while an
+// untouched customer stores nothing at all.
+//
+// Nothing else changes: a hidden cluster still connects, one already connected
+// keeps its session and its tab, and a handoff still resolves to it.
+func (r *Repository) SetGroupHidden(key string, hidden bool) error {
+	group := strings.TrimSpace(key)
+	if !domain.CanHideGroup(group) {
+		return fmt.Errorf("%s is not a customer that can be hidden", domain.UngroupedLabel)
+	}
+	return r.store.Update(func(data *store.Data) error {
+		if group != domain.ArchivedKey && !customerInUse(data, group) {
+			return fmt.Errorf("no cluster belongs to customer %q", group)
+		}
+
+		records := data.Customers[:0]
+		for _, record := range data.Customers {
+			if record.Key != group {
+				records = append(records, record)
+			}
+		}
+		data.Customers = records
+
+		if hidden != domain.GroupHiddenByDefault(group) {
+			data.Customers = append(data.Customers, store.CustomerRecord{Key: group, Hidden: hidden})
+		}
+		return nil
+	})
+}
+
+// SetArchived puts a cluster in the archive or takes it back out.
+//
+// This is not an edit of the cluster. The customer fields are left exactly as
+// they are, so a cluster taken out of the archive returns to its own customer's
+// section, and it is allowed while the cluster is connected because where a
+// cluster is listed has nothing to do with how it is reached.
+func (r *Repository) SetArchived(id string, archived bool) (domain.Cluster, error) {
+	var updated store.ClusterRecord
+	err := r.store.Update(func(data *store.Data) error {
+		for i, existing := range data.Clusters {
+			if existing.ID != id {
+				continue
+			}
+			data.Clusters[i].Archived = archived
+			data.Clusters[i].UpdatedAt = r.now().UTC().Format(time.RFC3339)
+			updated = data.Clusters[i]
+			pruneCustomers(data)
+			return nil
+		}
+		return fmt.Errorf("cluster %s does not exist", id)
+	})
+	if err != nil {
+		return domain.Cluster{}, err
+	}
+	return fromRecord(updated), nil
+}
+
+// groupChoices reads the visibility the engineer has chosen per section. A
+// section that is absent has never been chosen for and keeps its default.
+func (r *Repository) groupChoices() map[string]bool {
+	records := r.store.Read().Customers
+	out := make(map[string]bool, len(records))
+	for _, record := range records {
+		out[record.Key] = record.Hidden
+	}
+	return out
+}
+
+// hiddenFor resolves a section's visibility: what the engineer chose, otherwise
+// the section's default. A section that cannot be hidden at all is never
+// reported hidden, so a flag stored by an older build cannot strand its
+// clusters somewhere with no way back.
+func hiddenFor(chosen map[string]bool, key string) bool {
+	if !domain.CanHideGroup(key) {
+		return false
+	}
+	if hidden, ok := chosen[key]; ok {
+		return hidden
+	}
+	return domain.GroupHiddenByDefault(key)
+}
+
+// customerInUse asks whether any cluster still names this customer, archived or
+// not. An archived cluster counts: it is out of the list, not out of the
+// customer, so taking it back out finds the customer's own visibility intact.
+func customerInUse(data *store.Data, key string) bool {
+	for _, record := range data.Clusters {
+		if fromRecord(record).CustomerKey() == key {
+			return true
+		}
+	}
+	return false
+}
+
+// pruneCustomers forgets presentation state for customers with no clusters
+// left, so a customer that was renamed or whose last cluster was deleted cannot
+// leave a hidden flag behind that silently applies when that identifier is
+// typed again months later.
+//
+// The archive is exempt: it is a fixture of the list rather than an identifier
+// someone happened to reuse, so a revealed archive stays revealed after its
+// last cluster leaves.
+func pruneCustomers(data *store.Data) {
+	if len(data.Customers) == 0 {
+		return
+	}
+	records := data.Customers[:0]
+	for _, record := range data.Customers {
+		if record.Key == domain.ArchivedKey || customerInUse(data, record.Key) {
+			records = append(records, record)
+		}
+	}
+	data.Customers = records
 }
 
 // Namespace returns the namespace last used for a cluster.
@@ -253,7 +445,8 @@ func fromRecord(record store.ClusterRecord) domain.Cluster {
 			Required:  record.RequiresAccess,
 			ProfileID: record.AccessProfileID,
 		},
-		Labels: record.Labels,
+		Archived: record.Archived,
+		Labels:   record.Labels,
 	}
 	if parsed, err := time.Parse(time.RFC3339, record.CreatedAt); err == nil {
 		cluster.CreatedAt = parsed

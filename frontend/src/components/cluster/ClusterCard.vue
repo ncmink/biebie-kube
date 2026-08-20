@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 
 import ConnectionDiagnosis from './ConnectionDiagnosis.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EnvironmentBadge from '@/components/common/EnvironmentBadge.vue'
 import StateDot from '@/components/common/StateDot.vue'
 import { message } from '@/api'
@@ -13,11 +12,10 @@ import { Health } from '@/types'
 import type { Cluster } from '@/types'
 
 const props = defineProps<{ cluster: Cluster }>()
-const emit = defineEmits<{ open: [] }>()
+const emit = defineEmits<{ open: []; menu: [event: MouseEvent] }>()
 
 const clusters = useClusterStore()
 const ui = useUIStore()
-const removing = ref(false)
 
 const session = computed(() => clusters.sessions[props.cluster.id])
 const access = computed(() =>
@@ -48,22 +46,13 @@ async function connectAccess() {
     ui.say(message(error), 'bad')
   }
 }
-
-async function remove() {
-  removing.value = false
-  try {
-    await clusters.load()
-    await clusters.disconnect(props.cluster.id)
-  } catch (error) {
-    ui.say(message(error), 'bad')
-  }
-}
 </script>
 
 <template>
   <article
     class="relative overflow-hidden rounded-2xl border bg-surface-2 p-5"
     :class="cluster.environmentKind === 'production' ? 'border-warn/40' : 'border-line'"
+    @contextmenu.prevent="emit('menu', $event)"
   >
     <div
       v-if="cluster.environmentKind === 'production'"
@@ -127,15 +116,5 @@ async function remove() {
         Disconnect
       </button>
     </footer>
-
-    <ConfirmDialog
-      :open="removing"
-      title="Remove this cluster from Biebie Kube?"
-      detail="Only Biebie's record is removed. Your kubeconfig is left exactly as it is."
-      :cluster="cluster"
-      confirm-label="Remove"
-      @cancel="removing = false"
-      @confirm="remove"
-    />
   </article>
 </template>

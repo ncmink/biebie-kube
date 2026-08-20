@@ -82,6 +82,41 @@ func (s *ClusterService) DeleteCluster(clusterID string) error {
 	return describe(s.core.clusters.Repository().Delete(clusterID))
 }
 
+// ListCustomerGroups reports the customer sections of the cluster list, in the
+// order they are shown, and which of them are hidden.
+func (s *ClusterService) ListCustomerGroups() []domain.CustomerGroup {
+	return s.core.clusters.Repository().Groups()
+}
+
+// SetCustomerGroupHidden hides or reveals one customer's clusters and returns
+// the refreshed grouping.
+//
+// This is a change to the list, not to the clusters: nothing is deleted, an
+// open session survives, and a cluster in a hidden group still connects when a
+// handoff or the command palette asks for it.
+func (s *ClusterService) SetCustomerGroupHidden(key string, hidden bool) ([]domain.CustomerGroup, error) {
+	repo := s.core.clusters.Repository()
+	if err := repo.SetGroupHidden(key, hidden); err != nil {
+		return nil, describe(err)
+	}
+	return repo.Groups(), nil
+}
+
+// SetClusterArchived puts one cluster in the archive or takes it back out.
+//
+// The archive is the section of the list that is hidden unless asked for, so
+// this is how a cluster is put out of the way without deleting it or losing
+// which customer it belongs to. Like hiding a customer it changes the list
+// only: an archived cluster still connects, and one already connected keeps its
+// session and its tab.
+func (s *ClusterService) SetClusterArchived(clusterID string, archived bool) (ClusterView, error) {
+	cluster, err := s.core.clusters.Repository().SetArchived(clusterID, archived)
+	if err != nil {
+		return ClusterView{}, describe(err)
+	}
+	return ClusterView{Cluster: cluster, Session: s.core.clusters.Session(cluster.ID)}, nil
+}
+
 // ConnectCluster runs the connection sequence and returns the resulting state.
 func (s *ClusterService) ConnectCluster(ctx context.Context, clusterID string) (domain.Session, error) {
 	session, err := s.core.clusters.Connect(ctx, clusterID)

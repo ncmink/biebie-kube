@@ -198,6 +198,66 @@ array once, at the seam, so no screen has to tell "no rows" from "no answer".
 
 ---
 
+## One customer at a time
+
+The cluster list has always been read customer-first, so hiding is a property of
+the customer rather than a second grouping bolted on beside it. A whole customer
+can be put away, and the list says how many are out of sight:
+
+```text
+Acme Co      hidden     3 clusters
+SMOI                    2 clusters
+Ungrouped               1 cluster      ← auto-imported contexts start here
+```
+
+Hiding is presentation only. Nothing is deleted, an open session and its tab
+survive it, a hidden cluster still connects, and a handoff from Biebie Access
+still resolves to it — matching keys off identifiers, never off what the list
+happens to be showing. `internal/cluster/group_test.go` holds that line.
+
+**Ungrouped** has no hide control, because it is not a customer anyone is done
+with: it is where auto-import puts every context it finds, so hiding it would
+mean the next imported cluster arrives invisible behind the very section that
+would have offered to reveal it. A flag stored there by an older build is
+ignored for the same reason.
+
+A group is keyed by customer identifier, falling back to the customer name when
+none was given, for the same reason cluster identity is a UUID: a name is a
+label people rewrite, and a customer the engineer hid must stay hidden across
+the rename. State on disk describes only the groups that differ from the
+default, and a customer whose last cluster is deleted or reassigned forgets its
+flag, so an identifier typed again months later cannot start out invisible.
+
+```json
+"customers": [{ "key": "acme", "hidden": true }]
+```
+
+### The archive is the one section that is always there
+
+Hiding a whole customer is the wrong tool for one noisy cluster, so the list has
+a second kind of section: **Archived**. It is listed even when it is empty, it
+sits last so it never pushes the customers you are working with down the page,
+and it is hidden until you ask for it — the point is that there is always
+somewhere to drop a cluster you are not using.
+
+Archiving is a property of the cluster, not a change of customer. The customer
+fields keep saying what they said, so a cluster taken back out returns to its own
+customer's section, and a customer you had hidden is still hidden when it gets
+there. Because hidden is the archive's default, it is *revealing* it that gets
+recorded, and that choice survives the archive emptying:
+
+```json
+"customers": [{ "key": "biebie/archived", "hidden": false }]
+```
+
+Right-click any card for the rest: connect, disconnect, edit, archive, hide the
+customer, or remove the cluster from Biebie Kube. Editing goes through the same
+form as adding — and deliberately preserves what the form does not show, so
+correcting a cluster's name cannot lose the labels an import wrote or quietly
+take it out of the archive.
+
+---
+
 ## Kubeconfigs are read, never rewritten
 
 Importing indexes a file where it lives. `kubectl config set-context` changes

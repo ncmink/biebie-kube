@@ -1,9 +1,19 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
 import { ClusterState } from '@/types'
-import type { AccessState, Cluster, ClusterView, KindInfo, Session } from '@/types'
+import type {
+  AccessState,
+  Cluster,
+  ClusterView,
+  CustomerGroup,
+  KindInfo,
+  Session,
+} from '@/types'
+
+/** Whether hidden customer groups are currently revealed. A view preference. */
+const showHiddenKey = 'biebie-kube.show-hidden-groups'
 
 /**
  * Cluster state for the UI.
@@ -14,6 +24,8 @@ import type { AccessState, Cluster, ClusterView, KindInfo, Session } from '@/typ
  */
 export const useClusterStore = defineStore('clusters', () => {
   const clusters = ref<Cluster[]>([])
+  const groups = ref<CustomerGroup[]>([])
+  const showHidden = ref(localStorage.getItem(showHiddenKey) === '1')
   const sessions = ref<Record<string, Session>>({})
   const namespaces = ref<Record<string, string[]>>({})
   const catalogues = ref<Record<string, KindInfo[]>>({})
@@ -39,15 +51,38 @@ export const useClusterStore = defineStore('clusters', () => {
       .filter((c): c is Cluster => Boolean(c)),
   )
 
-  /** byCustomer groups the sidebar, because engineers think customer-first. */
-  const byCustomer = computed(() => {
-    const groups = new Map<string, Cluster[]>()
-    for (const cluster of clusters.value) {
-      const key = cluster.customerName || cluster.customerId || 'Ungrouped'
-      groups.set(key, [...(groups.get(key) ?? []), cluster])
-    }
-    return [...groups.entries()].map(([customer, items]) => ({ customer, items }))
-  })
+  /**
+   * byCustomer is the cluster list as Go grouped it, because engineers think
+   * customer-first and the grouping has to agree with what the backend hides.
+   * A group whose clusters are all gone is dropped rather than shown empty.
+   */
+  const byCustomer = computed(() =>
+    groups.value
+      .filter((group) => showHidden.value || !group.hidden)
+      .map((group) => ({
+        key: group.key,
+        customer: group.label,
+        hidden: group.hidden,
+        // The clusters that name no customer are not a customer, so that
+        // section is shown without the control that would put it away.
+        hideable: group.key !== '',
+        items: (group.clusterIds ?? [])
+          .map((id) => clusters.value.find((cluster) => cluster.id === id))
+          .filter((cluster): cluster is Cluster => Boolean(cluster)),
+      }))
+      .filter((group) => group.items.length > 0),
+  )
+
+  /** How many clusters sit in a hidden group, whether revealed or not. */
+  const hiddenCount = computed(() =>
+    groups.value
+      .filter((group) => group.hidden)
+      .reduce((total, group) => total + (group.clusterIds ?? []).length, 0),
+  )
+
+  const visibleCount = computed(() =>
+    byCustomer.value.reduce((total, group) => total + group.items.length, 0),
+  )
 
   function absorb(views: ClusterView[]) {
     clusters.value = views.map((view) => view.cluster)
@@ -60,12 +95,51 @@ export const useClusterStore = defineStore('clusters', () => {
     loading.value = true
     error.value = ''
     try {
-      absorb(await api.listClusters())
+      const [views, grouping] = await Promise.all([
+        api.listClusters(),
+        api.listCustomerGroups(),
+      ])
+      absorb(views)
+      groups.value = grouping
     } catch (err) {
       error.value = message(err)
     } finally {
       loading.value = false
     }
+  }
+
+  function setShowHidden(value: boolean) {
+    showHidden.value = value
+    localStorage.setItem(showHiddenKey, value ? '1' : '0')
+  }
+
+  function toggleShowHidden() {
+    setShowHidden(!showHidden.value)
+  }
+
+  /** Hides or reveals one section of the list. Nothing is deleted or dropped. */
+  async function setGroupHidden(key: string, hidden: boolean) {
+    groups.value = await api.setCustomerGroupHidden(key, hidden)
+  }
+
+  /**
+   * Puts one cluster in the archive or takes it back out.
+   *
+   * The archive is the section that stays hidden unless asked for, so this is
+   * how a cluster goes out of the way without being deleted. Allowed while it
+   * is connected: the session and its tab are untouched.
+   */
+  async function setArchived(clusterId: string, archived: boolean) {
+    await api.setClusterArchived(clusterId, archived)
+    await load()
+  }
+
+  /** Forgets a cluster. Biebie's record only — the kubeconfig is left alone. */
+  async function remove(clusterId: string) {
+    await api.deleteCluster(clusterId)
+    close(clusterId)
+    delete sessions.value[clusterId]
+    await load()
   }
 
   async function connect(clusterId: string) {
@@ -156,6 +230,8 @@ export const useClusterStore = defineStore('clusters', () => {
 
   return {
     clusters,
+    groups,
+    showHidden,
     sessions,
     namespaces,
     catalogues,
@@ -169,7 +245,14 @@ export const useClusterStore = defineStore('clusters', () => {
     activeNamespace,
     openClusters,
     byCustomer,
+    hiddenCount,
+    visibleCount,
     load,
+    setShowHidden,
+    toggleShowHidden,
+    setGroupHidden,
+    setArchived,
+    remove,
     connect,
     disconnect,
     open,
@@ -180,3 +263,12 @@ export const useClusterStore = defineStore('clusters', () => {
     subscribe,
   }
 })
+
+// A setup store is a closure, so a hot reload replaces the module while the
+// running instance keeps the actions it was built with — a component calling one
+// added a moment ago would find it undefined. Handing the update to Pinia
+// rebuilds the instance instead, which is what makes editing a store during
+// `wails3 dev` behave like editing a component.
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useClusterStore, import.meta.hot))
+}

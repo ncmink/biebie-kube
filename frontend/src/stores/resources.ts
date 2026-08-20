@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
@@ -72,3 +72,7 @@ export const useResourceStore = defineStore('resources', () => {
 
   return { page, loading, error, filter, current, load, reset, subscribe }
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useResourceStore, import.meta.hot))
+}

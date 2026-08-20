@@ -43,6 +43,10 @@ export const api = {
   updateCluster: ClusterService.UpdateCluster,
   deleteCluster: ClusterService.DeleteCluster,
 
+  listCustomerGroups: list(ClusterService.ListCustomerGroups),
+  setCustomerGroupHidden: list(ClusterService.SetCustomerGroupHidden),
+  setClusterArchived: ClusterService.SetClusterArchived,
+
   connectCluster: ClusterService.ConnectCluster,
   disconnectCluster: ClusterService.DisconnectCluster,
   listSessions: list(ClusterService.ListSessions),

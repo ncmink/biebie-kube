@@ -25,6 +25,11 @@ type Data struct {
 	Clusters    []ClusterRecord    `json:"clusters"`
 	Preferences []PreferenceRecord `json:"preferences"`
 
+	// Customers holds the presentation state of the cluster list's customer
+	// groups. Only groups that differ from the default appear, so an
+	// installation where nothing was hidden has no customers section at all.
+	Customers []CustomerRecord `json:"customers,omitempty"`
+
 	// SeenContexts records the kubeconfig contexts auto-import has already
 	// acted on. Without it, a cluster the engineer deliberately deleted would
 	// reappear at the next launch.
@@ -83,6 +88,11 @@ type ClusterRecord struct {
 	RequiresAccess  bool   `json:"requiresAccess"`
 	AccessProfileID string `json:"accessProfileId,omitempty"`
 
+	// Archived files the cluster under the archive instead of its customer. It
+	// is stored on the cluster rather than as a group membership because the
+	// customer fields keep meaning what they say while it is put away.
+	Archived bool `json:"archived,omitempty"`
+
 	Labels map[string]string `json:"labels,omitempty"`
 
 	CreatedAt string `json:"createdAt"`
@@ -93,6 +103,18 @@ type ClusterRecord struct {
 type PreferenceRecord struct {
 	ClusterID     string `json:"clusterId"`
 	LastNamespace string `json:"lastNamespace"`
+}
+
+// CustomerRecord records that one section of the cluster list does not have its
+// default visibility. Key is the customer identifier, the customer name when no
+// identifier was given, or the archive's own key.
+//
+// Because only differences from the default are stored, Hidden reads as "keep
+// this customer off the list" for a customer and as "keep the archive on it"
+// for the archive, which starts hidden.
+type CustomerRecord struct {
+	Key    string `json:"key"`
+	Hidden bool   `json:"hidden"`
 }
 
 // SeenContextRecord marks one kubeconfig context as already considered by
@@ -219,6 +241,7 @@ func (d Data) clone() Data {
 		}
 	}
 	out.Preferences = append([]PreferenceRecord(nil), d.Preferences...)
+	out.Customers = append([]CustomerRecord(nil), d.Customers...)
 	out.SeenContexts = append([]SeenContextRecord(nil), d.SeenContexts...)
 
 	// The flag is copied through a new pointer so a caller mutating the clone

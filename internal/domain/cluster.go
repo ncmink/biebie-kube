@@ -45,6 +45,11 @@ type Cluster struct {
 
 	Access AccessRequirement `json:"access"`
 
+	// Archived keeps a cluster out of the list without touching the customer it
+	// belongs to, so taking it back out returns it to that customer's section
+	// rather than to wherever it was last filed.
+	Archived bool `json:"archived"`
+
 	Labels map[string]string `json:"labels,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
@@ -75,6 +80,48 @@ func (c Cluster) Title() string {
 
 // IsProduction reports whether operations here deserve extra confirmation.
 func (c Cluster) IsProduction() bool { return c.EnvironmentKind.IsProduction() }
+
+// CustomerKey identifies the group this cluster is listed under.
+//
+// The identifier is preferred over the display name for the same reason cluster
+// identity is a UUID: a name is a label people rewrite, and a customer the
+// engineer hid from the list must stay hidden across that rename. A cluster
+// with neither belongs to the empty group, because a kubeconfig says nothing
+// about who owns a cluster.
+func (c Cluster) CustomerKey() string {
+	if id := strings.TrimSpace(c.CustomerID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(c.CustomerName)
+}
+
+// CustomerLabel is the heading the group is shown under.
+func (c Cluster) CustomerLabel() string {
+	if name := strings.TrimSpace(c.CustomerName); name != "" {
+		return name
+	}
+	if id := strings.TrimSpace(c.CustomerID); id != "" {
+		return id
+	}
+	return UngroupedLabel
+}
+
+// GroupKey is the section of the cluster list this cluster appears in: the
+// archive once it has been put away, otherwise its customer.
+func (c Cluster) GroupKey() string {
+	if c.Archived {
+		return ArchivedKey
+	}
+	return c.CustomerKey()
+}
+
+// GroupLabel is the heading of that section.
+func (c Cluster) GroupLabel() string {
+	if c.Archived {
+		return ArchivedLabel
+	}
+	return c.CustomerLabel()
+}
 
 // Host returns the API server host without scheme or port, for reachability
 // probes and for compact display.

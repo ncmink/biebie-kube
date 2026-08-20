@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
 export type Appearance = 'dark' | 'light' | 'system'
@@ -56,3 +56,7 @@ export const useUIStore = defineStore('ui', () => {
 
   return { appearance, paletteOpen, notice, setAppearance, say, dismiss, apply }
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useUIStore, import.meta.hot))
+}

@@ -4,10 +4,17 @@ import { computed, ref, watch } from 'vue'
 import { api, message } from '@/api'
 import { useUIStore } from '@/stores/ui'
 import { EnvironmentKind } from '@/types'
-import type { KubeconfigFile } from '@/types'
+import type { Cluster, KubeconfigFile } from '@/types'
 
-const props = defineProps<{ open: boolean }>()
-const emit = defineEmits<{ close: []; added: [] }>()
+/**
+ * Adds a cluster, or edits one when a cluster is given.
+ *
+ * Both are the same form because they answer the same questions — which
+ * kubeconfig context, whose cluster, which environment — and a second component
+ * would only be the first one drifting out of step.
+ */
+const props = defineProps<{ open: boolean; cluster?: Cluster | null }>()
+const emit = defineEmits<{ close: []; saved: [] }>()
 
 const ui = useUIStore()
 
@@ -26,6 +33,7 @@ const importPath = ref('')
 const saving = ref(false)
 const error = ref('')
 
+const editing = computed(() => Boolean(props.cluster))
 const selected = computed(() => files.value.find((file) => file.ref === kubeconfigRef.value))
 const contexts = computed(() => selected.value?.contexts ?? [])
 
@@ -34,6 +42,7 @@ watch(
   async (open) => {
     if (!open) return
     error.value = ''
+    fill()
     await refresh()
   },
 )
@@ -50,6 +59,21 @@ watch(environmentKind, (kind) => {
     environmentId.value = environmentId.value || kind
   }
 })
+
+/** fill starts the form from the cluster being edited, or empty for a new one. */
+function fill() {
+  const cluster = props.cluster
+  kubeconfigRef.value = cluster?.kubeconfigRef ?? kubeconfigRef.value
+  contextName.value = cluster?.contextName ?? ''
+  name.value = cluster?.name ?? ''
+  customerId.value = cluster?.customerId ?? ''
+  customerName.value = cluster?.customerName ?? ''
+  environmentId.value = cluster?.environmentId ?? ''
+  environmentName.value = cluster?.environmentName ?? ''
+  environmentKind.value = (cluster?.environmentKind as EnvironmentKind) ?? EnvironmentKind.EnvironmentUnknown
+  requiresAccess.value = cluster?.access.required ?? false
+  accessProfileId.value = cluster?.access.profileId ?? ''
+}
 
 async function refresh() {
   try {
@@ -77,40 +101,34 @@ async function importFile() {
 async function save() {
   saving.value = true
   error.value = ''
+  const input = {
+    name: name.value.trim(),
+    customerId: customerId.value.trim(),
+    customerName: customerName.value.trim(),
+    environmentId: environmentId.value.trim(),
+    environmentName: environmentName.value.trim(),
+    environmentKind: environmentKind.value,
+    kubeconfigRef: kubeconfigRef.value,
+    contextName: contextName.value,
+    requiresAccess: requiresAccess.value,
+    accessProfileId: accessProfileId.value.trim(),
+  }
   try {
-    await api.createCluster({
-      name: name.value.trim(),
-      customerId: customerId.value.trim(),
-      customerName: customerName.value.trim(),
-      environmentId: environmentId.value.trim(),
-      environmentName: environmentName.value.trim(),
-      environmentKind: environmentKind.value,
-      kubeconfigRef: kubeconfigRef.value,
-      contextName: contextName.value,
-      requiresAccess: requiresAccess.value,
-      accessProfileId: accessProfileId.value.trim(),
-    })
-    ui.say(`Added ${name.value.trim()}.`)
-    emit('added')
+    const target = props.cluster
+    if (target) {
+      await api.updateCluster(target.id, input)
+      ui.say(`Saved ${input.name}.`)
+    } else {
+      await api.createCluster(input)
+      ui.say(`Added ${input.name}.`)
+    }
+    emit('saved')
     emit('close')
-    reset()
   } catch (err) {
     error.value = message(err)
   } finally {
     saving.value = false
   }
-}
-
-function reset() {
-  contextName.value = ''
-  name.value = ''
-  customerId.value = ''
-  customerName.value = ''
-  environmentId.value = ''
-  environmentName.value = ''
-  environmentKind.value = EnvironmentKind.EnvironmentUnknown
-  requiresAccess.value = false
-  accessProfileId.value = ''
 }
 </script>
 
@@ -121,7 +139,9 @@ function reset() {
     @click.self="emit('close')"
   >
     <div class="w-full max-w-2xl rounded-2xl border border-line bg-surface-2 p-6">
-      <h2 class="text-base font-semibold text-ink">Add a cluster</h2>
+      <h2 class="text-base font-semibold text-ink">
+        {{ editing ? 'Edit cluster' : 'Add a cluster' }}
+      </h2>
       <p class="mt-1 text-sm text-ink-muted">
         Pick a context from a kubeconfig you already have, and say which customer it belongs to.
       </p>
@@ -211,6 +231,12 @@ function reset() {
           </label>
         </div>
 
+        <p class="text-xs leading-relaxed text-ink-faint">
+          The customer is what the cluster list is grouped by, and a customer can be kept off that
+          list while you work somewhere else. To put a single cluster away, right-click it and
+          archive it instead.
+        </p>
+
         <div class="rounded-xl border border-line bg-surface-3 p-4">
           <label class="flex items-start gap-3">
             <input v-model="requiresAccess" type="checkbox" class="mt-1 accent-brand" />
@@ -244,7 +270,7 @@ function reset() {
           :disabled="saving || !contextName || !name"
           @click="save"
         >
-          Add cluster
+          {{ editing ? 'Save changes' : 'Add cluster' }}
         </button>
       </div>
     </div>

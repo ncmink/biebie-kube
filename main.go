@@ -58,12 +58,13 @@ func main() {
 	links := newLinkQueue(func(link string) {
 		accessService.OpenDeepLink(context.Background(), link)
 	})
+	appService := &AppService{core: core, links: links}
 
 	app := application.New(application.Options{
 		Name:        "Biebie Kube",
 		Description: "Kubernetes workspace for the biebie.net family.",
 		Services: []application.Service{
-			application.NewService(&AppService{core: core, links: links}),
+			application.NewService(appService),
 			application.NewService(&ClusterService{core: core}),
 			application.NewService(&ResourceService{core: core}),
 			application.NewService(&LogService{core: core}),
@@ -90,6 +91,9 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+
+	configureUpdater(app)
+	appService.updater = app.Updater
 
 	// macOS delivers a URL scheme launch as an application event rather than
 	// an argument, so both paths feed the same queue.

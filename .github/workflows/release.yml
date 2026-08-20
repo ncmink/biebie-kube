@@ -18,7 +18,7 @@ env:
 
 jobs:
   macos:
-    name: Build macOS (.dmg)
+    name: Build macOS (.dmg + updater zip)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -34,28 +34,36 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Version
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APP_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
       - name: Install wails3
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: Package universal .app + .dmg
         run: |
-          wails3 task darwin:package:universal
+          wails3 task darwin:package:universal APP_VERSION="$APP_VERSION"
           wails3 task darwin:create:dmg
 
       - name: Rename artifacts
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
           DMG="$(ls bin/*.dmg | head -n1)"
           mv "$DMG" "bin/${APP_NAME}-${VERSION}-macos-universal.dmg"
+          ditto -c -k --keepParent "bin/${APP_NAME}.app" "bin/${APP_NAME}-${VERSION}-darwin-universal.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-dmg
-          path: bin/*.dmg
+          name: macos
+          path: |
+            bin/*.dmg
+            bin/*darwin-universal.zip
           if-no-files-found: error
 
   windows:
-    name: Build Windows (NSIS installer)
+    name: Build Windows (NSIS + updater zip)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +79,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Version
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APP_VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
       - name: Install NSIS
         shell: pwsh
         run: |
@@ -83,19 +98,21 @@ jobs:
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: Package NSIS installer
-        run: wails3 task windows:package
+        run: wails3 task windows:package APP_VERSION=${{ env.APP_VERSION }} INSTALL_SCOPE=user
 
       - name: Rename artifacts
         shell: pwsh
         run: |
-          $version = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ github.event.inputs.version }}" } else { "${{ github.ref_name }}" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Move-Item "bin\$env:APP_NAME-*-installer.exe" "dist\$env:APP_NAME-$version-windows-amd64-installer.exe"
+          Move-Item "bin\$env:APP_NAME-*-installer.exe" "dist\$env:APP_NAME-$env:VERSION-windows-amd64-installer.exe"
+          Compress-Archive -Path "bin\$env:APP_NAME.exe" -DestinationPath "dist\$env:APP_NAME-$env:VERSION-windows-amd64.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: dist/*.exe
+          name: windows
+          path: |
+            dist/*.exe
+            dist/*.zip
           if-no-files-found: error
 
   release:
@@ -109,6 +126,11 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum biebie-kube-* > SHA256SUMS
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

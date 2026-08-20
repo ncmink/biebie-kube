@@ -36,6 +36,7 @@ export const api = {
   ready: AppService.Ready,
   version: AppService.Version,
   statePath: AppService.StatePath,
+  checkForUpdate: AppService.CheckForUpdate,
 
   listClusters: list(ClusterService.ListClusters),
   getCluster: ClusterService.GetCluster,

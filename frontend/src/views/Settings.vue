@@ -17,6 +17,7 @@ const version = ref('')
 const statePath = ref('')
 const accessInstalled = ref(false)
 const error = ref('')
+const checking = ref(false)
 
 const appearances: { id: Appearance; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -73,6 +74,17 @@ async function forget(ref_: string) {
     await clusters.load()
   } catch (err) {
     ui.say(message(err), 'bad')
+  }
+}
+
+async function checkForUpdate() {
+  checking.value = true
+  try {
+    await api.checkForUpdate()
+  } catch (err) {
+    ui.say(message(err), 'bad')
+  } finally {
+    checking.value = false
   }
 }
 
@@ -181,7 +193,16 @@ onMounted(load)
       </section>
 
       <section class="mt-8 border-t border-line pt-4 text-xs text-ink-faint">
-        <p>Biebie Kube {{ version }}</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <p>Biebie Kube {{ version }}</p>
+          <button
+            class="rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
+            :disabled="checking"
+            @click="checkForUpdate"
+          >
+            {{ checking ? 'Checking…' : 'Check for updates…' }}
+          </button>
+        </div>
         <p class="mt-1 font-mono">{{ statePath }}</p>
       </section>
     </div>

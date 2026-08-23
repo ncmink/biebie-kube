@@ -38,14 +38,19 @@ credentials                          Kubernetes sessions
 VPN sessions                         resources, logs, exec
 network connectivity                 port forwards, YAML
         │                                   │
-        └────────── protocol/ ──────────────┘
+        └────────── biebie-protocol ────────┘
                  Biebie Context Protocol
 ```
 
 They share the Biebie Context Protocol, and nothing else. No shared
 database, no shared business logic. Either application runs with the other
-uninstalled. In this repo the contract lives in `protocol/`
-(`biebie-kube/protocol/...`).
+uninstalled.
+
+The contract is its own module, `biebie.net/protocol`, checked out beside this
+repository as `biebie-protocol/` and resolved through a `replace` directive in
+`go.mod`. Both applications point at that one copy, so changing the wire format
+breaks the build in both at once instead of leaving a mismatch to be found at
+runtime.
 
 ---
 
@@ -69,7 +74,8 @@ This is the rule the integration is built around. A `BiebieContext` carries
 
 `protocol/context` rejects a context whose values look like credentials,
 and `protocol/deeplink` refuses to build or parse a URL carrying a
-password, token or certificate. A deep link carries one thing:
+password, token or certificate — both live in the shared `biebie-protocol`
+module. A deep link carries one thing:
 
 ```text
 biebie-kube://open?handoff=hnd_01JABC123
@@ -155,13 +161,6 @@ biebie-kube/
 ├── service_stream.go      logs, terminals, port forwards
 ├── service_access.go      Biebie Access integration and handoffs
 │
-├── protocol/              Biebie Context Protocol — no kube business logic
-│   ├── context/           who/where record
-│   ├── handoff/           short-lived, single-use handoff store
-│   ├── ipc/               Unix socket / Windows named pipe
-│   ├── deeplink/          biebie-kube:// and biebie-access:// URLs
-│   └── version/           protocol version negotiation
-│
 ├── internal/
 │   ├── domain/            models shared across services
 │   ├── store/             atomic JSON persistence
@@ -175,7 +174,18 @@ biebie-kube/
 │   ├── portforward/       loopback-only sessions
 │   └── manifest/          read, diff, apply
 │
-└── cmd/mock-access/       stands in for Biebie Access in development
+├── cmd/mock-access/       stands in for Biebie Access in development
+└── cmd/access-smoke/      asks a real Biebie Access everything this app asks
+```
+
+The protocol is not in this tree. It is a sibling checkout, shared with Biebie
+Access:
+
+```text
+projects/biebie/
+├── biebie-protocol/       biebie.net/protocol — the shared wire contract
+├── biebie-kube/           this repository
+└── biebie-access/         the other half
 ```
 
 Each `service_*.go` file is a Wails service registered in `main.go`. They hold
@@ -325,5 +335,20 @@ To exercise the handoff without Biebie Access installed:
 go run ./cmd/mock-access -open
 ```
 
+To check against the real Biebie Access instead, with its own endpoint serving:
+
+```bash
+go -C ../biebie-access run ./cmd/endpoint-smoke   # prints a profile id
+go run ./cmd/access-smoke <connection id or name>
+```
+
 That speaks the real protocol on the real endpoint, so what it proves locally
 is what happens in production.
+
+A cluster may name its connection instead of carrying the id, because the id is
+a UUID and the name is what Biebie Access actually shows. Biebie Access resolves
+either, and `access.connect` replies with the id it resolved to; the cluster
+record is rewritten to that id the first time it comes back. Only the id is
+stable, and every state change Biebie Access announces uses it — a cluster left
+holding the name would not recognise its own customer network coming up, and
+would never retry on its own.

@@ -8,15 +8,15 @@
   IgnorableNamespaces="uap3">
   
   <Identity 
-    Name="com.biebie.biebiekube"
+    Name="net.biebie.kube"
     Publisher="CN=Biebie"
-    Version="0.1.0.0" 
+    Version="0.2.0.0" 
     ProcessorArchitecture="arm64" />
   
   <Properties>
-    <DisplayName>My Product</DisplayName>
+    <DisplayName>Biebie Kube</DisplayName>
     <PublisherDisplayName>Biebie</PublisherDisplayName>
-    <Description>A biebie-kube application</Description>
+    <Description>Kubernetes workspace for the biebie.net family.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   
@@ -29,10 +29,10 @@
   </Resources>
   
   <Applications>
-    <Application Id="com.biebie.biebiekube" Executable="biebie-kube" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="BiebieKube" Executable="biebie-kube" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="My Product"
-        Description="A biebie-kube application"
+        DisplayName="Biebie Kube"
+        Description="Kubernetes workspace for the biebie.net family."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

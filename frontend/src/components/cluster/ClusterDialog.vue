@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { api, message } from '@/api'
 import { useUIStore } from '@/stores/ui'
 import { EnvironmentKind } from '@/types'
-import type { Cluster, KubeconfigFile } from '@/types'
+import type { AccessProfile, Cluster, KubeconfigFile } from '@/types'
 
 /**
  * Adds a cluster, or edits one when a cluster is given.
@@ -33,9 +33,30 @@ const importPath = ref('')
 const saving = ref(false)
 const error = ref('')
 
+// The connections Biebie Access holds, so the profile can be picked rather than
+// typed. An identifier typed by hand is the one field here whose mistakes are
+// invisible: the cluster looks configured and only fails later, as a Connect
+// button that never connects.
+const accessProfiles = ref<AccessProfile[]>([])
+
 const editing = computed(() => Boolean(props.cluster))
 const selected = computed(() => files.value.find((file) => file.ref === kubeconfigRef.value))
 const contexts = computed(() => selected.value?.contexts ?? [])
+
+/**
+ * Whether the profile has to be typed.
+ *
+ * Biebie Access being closed must not stop a cluster being configured, so the
+ * text field stays as the fallback — and it is also what keeps an identifier
+ * that was already saved editable when it no longer matches anything on this
+ * machine.
+ */
+const mustTypeProfile = computed(
+  () =>
+    accessProfiles.value.length === 0 ||
+    (accessProfileId.value !== '' &&
+      !accessProfiles.value.some((profile) => profile.id === accessProfileId.value)),
+)
 
 watch(
   () => props.open,
@@ -83,6 +104,15 @@ async function refresh() {
     }
   } catch (err) {
     error.value = message(err)
+  }
+
+  // Separate from the kubeconfigs above, and deliberately silent: Biebie Access
+  // being closed is the ordinary case, and it costs this form nothing. The
+  // picker simply becomes a text field.
+  try {
+    accessProfiles.value = await api.accessProfiles()
+  } catch {
+    accessProfiles.value = []
   }
 }
 
@@ -291,12 +321,52 @@ async function save() {
               </span>
             </span>
           </label>
-          <input
-            v-if="requiresAccess"
-            v-model="accessProfileId"
-            class="mt-3 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 font-mono text-sm text-ink outline-none focus:border-brand"
-            placeholder="Biebie Access profile id, for example smoi-vpn"
-          />
+          <template v-if="requiresAccess">
+            <!--
+              Picked from what Biebie Access actually holds when it is running,
+              typed when it is not. The identifier has to match exactly, and
+              nothing tells the engineer when it does not.
+            -->
+            <div v-if="!mustTypeProfile" class="relative mt-3">
+              <select
+                v-model="accessProfileId"
+                class="h-10 w-full appearance-none rounded-lg border border-line bg-surface-1 px-3 pr-10 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">Select a connection…</option>
+                <option v-for="profile in accessProfiles" :key="profile.id" :value="profile.id">
+                  {{ profile.group ? `${profile.group} — ` : '' }}{{ profile.name }}
+                  <template v-if="profile.provider"> ({{ profile.provider }})</template>
+                </option>
+              </select>
+              <span
+                class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-ink-faint"
+                aria-hidden="true"
+              >
+                <svg class="size-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </span>
+            </div>
+
+            <template v-else>
+              <input
+                v-model="accessProfileId"
+                class="mt-3 h-10 w-full rounded-lg border border-line bg-surface-1 px-3 font-mono text-sm text-ink outline-none focus:border-brand"
+                placeholder="Biebie Access connection name or id"
+              />
+              <p class="mt-2 text-xs text-ink-muted">
+                {{
+                  accessProfiles.length
+                    ? 'This does not match the name or id of any connection in Biebie Access. Clear it to pick from the list.'
+                    : 'Biebie Access is not running, so its connections cannot be listed. Its connection name works here, and is replaced with the stable id once Biebie Access confirms it.'
+                }}
+              </p>
+            </template>
+          </template>
         </div>
       </div>
 

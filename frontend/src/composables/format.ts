@@ -1,4 +1,4 @@
-import { ClusterState, Health, PortForwardState } from '@/types'
+import { AccessConnectionState, ClusterState, Health, PortForwardState } from '@/types'
 
 /**
  * age renders a timestamp the way kubectl does: one unit, largest first.
@@ -114,6 +114,37 @@ const stateColours: Partial<Record<ClusterState, string>> = {
 
 export function stateDot(state: ClusterState | undefined): string {
   return (state && stateColours[state]) ?? 'bg-ink-faint'
+}
+
+/**
+ * Biebie Access connectivity, in the same dot vocabulary as everything else.
+ *
+ * Disconnected is a warning rather than a neutral state because these maps are
+ * only consulted for a cluster that declared it needs a customer network: the
+ * tunnel being down is the thing standing between the engineer and their work.
+ */
+const accessHealths: Partial<Record<AccessConnectionState, Health>> = {
+  [AccessConnectionState.AccessConnected]: Health.HealthHealthy,
+  [AccessConnectionState.AccessConnecting]: Health.HealthProgress,
+  [AccessConnectionState.AccessDisconnected]: Health.HealthWarning,
+  [AccessConnectionState.AccessFailed]: Health.HealthCritical,
+  [AccessConnectionState.AccessUnknown]: Health.HealthUnknown,
+}
+
+export function accessHealth(state: AccessConnectionState | undefined): Health {
+  return (state ? accessHealths[state] : undefined) ?? Health.HealthUnknown
+}
+
+const accessLabels: Partial<Record<AccessConnectionState, string>> = {
+  [AccessConnectionState.AccessConnected]: 'Connected via Biebie Access',
+  [AccessConnectionState.AccessConnecting]: 'Biebie Access is connecting…',
+  [AccessConnectionState.AccessDisconnected]: 'Customer network required',
+  [AccessConnectionState.AccessFailed]: 'Biebie Access could not connect',
+  [AccessConnectionState.AccessUnknown]: 'Customer network required',
+}
+
+export function accessLabel(state: AccessConnectionState | undefined): string {
+  return (state ? accessLabels[state] : undefined) ?? 'Customer network required'
 }
 
 const forwardHealths: Partial<Record<PortForwardState, Health>> = {

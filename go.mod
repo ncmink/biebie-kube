@@ -3,7 +3,7 @@ module biebie-kube
 go 1.25.0
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
+	biebie.net/protocol v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.9
 	k8s.io/api v0.34.1
@@ -13,7 +13,15 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
+// The Biebie Context Protocol is the contract this application shares with
+// Biebie Access, and it is developed alongside them rather than published: the
+// three repositories sit side by side in one checkout. Both applications point
+// here, so a change to the wire format is a compile error in both at once
+// instead of a mismatch discovered at runtime.
+replace biebie.net/protocol => ../biebie-protocol
+
 require (
+	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

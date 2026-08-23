@@ -3,7 +3,7 @@ package cluster
 import (
 	"testing"
 
-	bctx "biebie-kube/protocol/context"
+	bctx "biebie.net/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/store"

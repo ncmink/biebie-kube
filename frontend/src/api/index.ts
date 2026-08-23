@@ -112,6 +112,7 @@ export const api = {
   accessStatus: AccessService.GetAccessStatus,
   connectWithAccess: AccessService.ConnectWithAccess,
   accessInstalled: AccessService.AccessInstalled,
+  accessProfiles: list(AccessService.ListAccessProfiles),
   consumeHandoff: AccessService.ConsumeHandoff,
 }
 

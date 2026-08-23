@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	bctx "biebie-kube/protocol/context"
-	"biebie-kube/protocol/ipc"
+	bctx "biebie.net/protocol/context"
+	"biebie.net/protocol/ipc"
 )
 
 // statusCacheTTL smooths repeated status questions.
@@ -109,12 +109,40 @@ func (c *Client) Status(ctx context.Context, profileID string) (bctx.AccessStatu
 // Biebie Access decides what that means — it may need a password, an OTP, or a
 // vendor window — and it always shows its own UI. Biebie Kube never performs
 // an unattended login on the user's behalf.
-func (c *Client) Connect(ctx context.Context, profileID string) error {
-	if err := c.rpc.Call(ctx, ipc.MethodAccessConnect, map[string]string{"profileId": profileID}, nil); err != nil {
-		return err
+//
+// The returned identifier is the connection Biebie Access resolved the request
+// to. It differs from profileID when a cluster refers to its connection by
+// name, and it is the identifier every later notification will use.
+func (c *Client) Connect(ctx context.Context, profileID string) (string, error) {
+	var result bctx.AccessConnectResult
+	if err := c.rpc.Call(ctx, ipc.MethodAccessConnect, map[string]string{"profileId": profileID}, &result); err != nil {
+		return "", err
 	}
 	c.Forget(profileID)
-	return nil
+	if result.ProfileID == "" {
+		// An older Biebie Access acknowledged without naming what it resolved,
+		// so the reference stands as the only identifier either side knows.
+		return profileID, nil
+	}
+	c.Forget(result.ProfileID)
+	return result.ProfileID, nil
+}
+
+// Profiles lists the connections Biebie Access holds.
+//
+// It returns an empty list, not an error, when Biebie Access is not running.
+// The caller is populating a picker, and "no choices yet" is the honest answer
+// to show beside an offer to install or start the other application.
+func (c *Client) Profiles(ctx context.Context) ([]bctx.AccessProfile, error) {
+	var profiles []bctx.AccessProfile
+	err := c.rpc.Call(ctx, ipc.MethodAccessProfiles, struct{}{}, &profiles)
+	if errors.Is(err, ipc.ErrPeerUnavailable) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ask Biebie Access for its connections: %w", err)
+	}
+	return profiles, nil
 }
 
 // ConsumeHandoff redeems a handoff ticket with Biebie Access.

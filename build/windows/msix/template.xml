@@ -10,24 +10,24 @@
     <Installer
         Path="biebie-kube"
         Arguments=""
-        InstallLocation="C:\Program Files\Biebie\My Product">
+        InstallLocation="C:\Program Files\Biebie\Biebie Kube">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
+        PackageName="net.biebie.kube"
+        PackageDisplayName="Biebie Kube"
         PublisherName="CN=Biebie"
         PublisherDisplayName="Biebie"
-        Version="0.1.0.0"
-        PackageDescription="A biebie-kube application">
+        Version="0.2.0.0"
+        PackageDescription="Kubernetes workspace for the biebie.net family.">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
         </Capabilities>
         <Applications>
             <Application
-                Id="com.biebie.biebiekube"
-                Description="A biebie-kube application"
-                DisplayName="My Product"
+                Id="BiebieKube"
+                Description="Kubernetes workspace for the biebie.net family."
+                DisplayName="Biebie Kube"
                 ExecutableName="biebie-kube"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,9 +41,9 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
+            <DisplayName>Biebie Kube</DisplayName>
             <PublisherDisplayName>Biebie</PublisherDisplayName>
-            <Description>A biebie-kube application</Description>
+            <Description>Kubernetes workspace for the biebie.net family.</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

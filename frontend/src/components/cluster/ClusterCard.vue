@@ -5,7 +5,7 @@ import ConnectionDiagnosis from './ConnectionDiagnosis.vue'
 import EnvironmentBadge from '@/components/common/EnvironmentBadge.vue'
 import StateDot from '@/components/common/StateDot.vue'
 import { message } from '@/api'
-import { stateLabel } from '@/composables/format'
+import { accessHealth, accessLabel, stateLabel } from '@/composables/format'
 import { useClusterStore } from '@/stores/clusters'
 import { useUIStore } from '@/stores/ui'
 import { Health } from '@/types'
@@ -22,20 +22,37 @@ const access = computed(() =>
   props.cluster.access.profileId ? clusters.accessStates[props.cluster.access.profileId] : undefined,
 )
 
+/** opening is true from the click until the network is up or the ask lapses. */
+const opening = computed(() => clusters.accessOpening(props.cluster.access.profileId ?? ''))
+
+/** launching is the narrower gap before Biebie Access has said anything back. */
+const launching = computed(() =>
+  Boolean(clusters.accessAsked[props.cluster.access.profileId ?? '']),
+)
+
 // A cluster that needs no customer network is neither healthy nor unhealthy in
 // this respect, so it shows the neutral dot rather than a green one it has not
 // earned.
-const accessHealth = computed(() => {
+const accessDot = computed(() => {
   if (!props.cluster.access.required) return Health.HealthUnknown
-  return access.value?.status.connected ? Health.HealthHealthy : Health.HealthWarning
+  if (opening.value) return Health.HealthProgress
+  return accessHealth(access.value?.status.state)
 })
 
-const accessLabel = computed(() => {
+const accessText = computed(() => {
   if (!props.cluster.access.required) return 'Not required'
+  if (launching.value) return 'Opening Biebie Access…'
   const state = access.value
   if (!state) return 'Checking…'
   if (!state.installed) return 'Biebie Access is not running'
-  return state.status.connected ? 'Connected via Biebie Access' : 'Customer network required'
+  return accessLabel(state.status.state)
+})
+
+/** The button says what it is waiting on rather than inviting another click. */
+const accessButton = computed(() => {
+  if (launching.value) return 'Opening Biebie Access…'
+  if (opening.value) return 'Connecting…'
+  return 'Connect with Biebie Access'
 })
 
 async function connectAccess() {
@@ -68,15 +85,18 @@ async function connectAccess() {
       <EnvironmentBadge :kind="cluster.environmentKind" :label="cluster.environmentName" />
     </header>
 
-    <dl class="mt-4 space-y-2 text-xs">
-      <div class="flex items-center gap-2">
+    <dl class="mt-4 space-y-1 text-xs">
+      <div
+        class="-mx-1.5 flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors"
+        :class="opening ? 'bg-info/10 ring-1 ring-inset ring-info/30' : ''"
+      >
         <dt class="w-16 shrink-0 text-ink-faint">Access</dt>
-        <dd class="flex min-w-0 items-center gap-1.5 text-ink-muted">
-          <StateDot :health="accessHealth" />
-          <span class="truncate">{{ accessLabel }}</span>
+        <dd class="flex min-w-0 items-center gap-1.5" :class="opening ? 'text-info' : 'text-ink-muted'">
+          <StateDot :health="accessDot" :pulse="opening" />
+          <span class="truncate">{{ accessText }}</span>
         </dd>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="-mx-1.5 flex items-center gap-2 px-1.5 py-1">
         <dt class="w-16 shrink-0 text-ink-faint">Cluster</dt>
         <dd class="flex min-w-0 items-center gap-1.5 text-ink-muted">
           <StateDot :state="session?.state" :pulse="session?.state === 'connecting'" />
@@ -103,10 +123,15 @@ async function connectAccess() {
       </button>
       <button
         v-if="cluster.access.required && !access?.status.connected"
-        class="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
+        class="rounded-lg border px-3 py-1.5 text-xs transition-colors"
+        :class="
+          opening
+            ? 'border-info/40 bg-info/10 text-info'
+            : 'border-line text-ink-muted hover:text-ink'
+        "
         @click="connectAccess"
       >
-        Connect with Biebie Access
+        {{ accessButton }}
       </button>
       <button
         v-if="session?.state === 'connected'"

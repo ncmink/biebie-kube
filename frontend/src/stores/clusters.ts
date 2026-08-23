@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
-import { ClusterState } from '@/types'
+import { AccessConnectionState, ClusterState } from '@/types'
 import type {
   AccessState,
   Cluster,
@@ -14,6 +14,15 @@ import type {
 
 /** Whether hidden customer groups are currently revealed. A view preference. */
 const showHiddenKey = 'biebie-kube.show-hidden-groups'
+
+/**
+ * How long a request to Biebie Access stays highlighted with nothing heard back.
+ *
+ * Long enough to cover launching the other application and choosing an account;
+ * short enough that an abandoned request stops pretending to be in progress.
+ * Biebie Access reporting "connecting" ends the wait well before this.
+ */
+const accessAskTimeout = 45_000
 
 /**
  * Cluster state for the UI.
@@ -30,6 +39,17 @@ export const useClusterStore = defineStore('clusters', () => {
   const namespaces = ref<Record<string, string[]>>({})
   const catalogues = ref<Record<string, KindInfo[]>>({})
   const accessStates = ref<Record<string, AccessState>>({})
+
+  /**
+   * accessAsked holds the profiles this window has asked Biebie Access to bring
+   * up and not yet seen move.
+   *
+   * It covers the gap between the click and the first real state. Biebie Access
+   * may have to be launched, and until it reports "connecting" the honest status
+   * is still "disconnected" — which would leave the button looking like it did
+   * nothing at the one moment the engineer is watching it.
+   */
+  const accessAsked = ref<Record<string, boolean>>({})
 
   const activeId = ref<string>('')
 
@@ -201,12 +221,67 @@ export const useClusterStore = defineStore('clusters', () => {
 
   async function refreshAccess(profileId: string) {
     if (!profileId) return
-    accessStates.value[profileId] = await api.accessStatus(profileId)
+    const state = await api.accessStatus(profileId)
+    accessStates.value[profileId] = state
+
+    // Anything other than "still down" means Biebie Access has taken the
+    // request on, so the optimistic highlight hands over to the real one.
+    const observed = state.status.state
+    if (
+      observed !== AccessConnectionState.AccessDisconnected &&
+      observed !== AccessConnectionState.AccessUnknown
+    ) {
+      forgetAccessAsk(profileId)
+    }
+  }
+
+  function forgetAccessAsk(profileId: string) {
+    delete accessAsked.value[profileId]
   }
 
   async function connectWithAccess(cluster: Cluster) {
     const profileId = cluster.access.profileId ?? ''
-    await api.connectWithAccess(profileId, cluster.customerId)
+    if (!profileId) return
+
+    accessAsked.value[profileId] = true
+
+    let inEffect = profileId
+    try {
+      inEffect = (await api.connectWithAccess(profileId, cluster.customerId)) || profileId
+    } catch (err) {
+      // The ask failed outright — Biebie Access is not installed, or refused
+      // the profile — so there is nothing on its way up to highlight.
+      forgetAccessAsk(profileId)
+      throw err
+    }
+
+    // A cluster configured with a connection name has just had that name
+    // rewritten to the identifier Biebie Access reports under, so the highlight
+    // and the cluster on screen both have to move with it.
+    if (inEffect !== profileId) {
+      forgetAccessAsk(profileId)
+      accessAsked.value[inEffect] = true
+      await load()
+    }
+
+    // Biebie Access may still be starting, so its answer is chased rather than
+    // waited for.
+    void refreshAccess(inEffect)
+
+    // Someone who opens Biebie Access and then closes it without connecting
+    // leaves no state change behind, so the highlight cannot rely only on one
+    // arriving. Reaching "connecting" clears this long before it fires.
+    window.setTimeout(() => forgetAccessAsk(inEffect), accessAskTimeout)
+  }
+
+  /**
+   * accessOpening reports that a customer network is on its way up, whether
+   * because this window just asked or because Biebie Access says so.
+   */
+  function accessOpening(profileId: string): boolean {
+    if (!profileId) return false
+    if (accessAsked.value[profileId]) return true
+    return accessStates.value[profileId]?.status.state === AccessConnectionState.AccessConnecting
   }
 
   /**
@@ -236,6 +311,8 @@ export const useClusterStore = defineStore('clusters', () => {
     namespaces,
     catalogues,
     accessStates,
+    accessAsked,
+    accessOpening,
     activeId,
     openIds,
     loading,

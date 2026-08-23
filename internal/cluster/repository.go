@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	bctx "biebie-kube/protocol/context"
+	bctx "biebie.net/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/store"
@@ -317,6 +317,43 @@ func (r *Repository) SetArchived(id string, archived bool) (domain.Cluster, erro
 		return domain.Cluster{}, err
 	}
 	return fromRecord(updated), nil
+}
+
+// AdoptAccessProfileID replaces one Biebie Access reference with another
+// wherever it is used, and reports how many clusters changed.
+//
+// It exists because a connection may be configured by name, which is readable
+// but not stable: Biebie Access reports every state change by identifier, so a
+// cluster still holding the name would not recognise its own customer network
+// coming up and would never retry. Recording the identifier the first time
+// Biebie Access resolves one keeps both sides talking about the same thing.
+//
+// This is not an edit of the cluster. It swaps one reference for another that
+// Biebie Access has just confirmed points at the same connection, so nothing
+// about how the cluster is reached actually changes.
+func (r *Repository) AdoptAccessProfileID(from, to string) (int, error) {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	if from == "" || to == "" || from == to {
+		return 0, nil
+	}
+
+	changed := 0
+	err := r.store.Update(func(data *store.Data) error {
+		for i, existing := range data.Clusters {
+			if existing.AccessProfileID != from {
+				continue
+			}
+			data.Clusters[i].AccessProfileID = to
+			data.Clusters[i].UpdatedAt = r.now().UTC().Format(time.RFC3339)
+			changed++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return changed, nil
 }
 
 // groupChoices reads the visibility the engineer has chosen per section. A

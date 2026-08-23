@@ -22,7 +22,7 @@
 		<array>
 			<dict>
 				<key>CFBundleURLName</key>
-				<string>wails.com.biebie-kube</string>
+				<string>net.biebie.biebie-kube</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>biebie-kube</string>

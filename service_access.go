@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	bctx "biebie-kube/protocol/context"
-	"biebie-kube/protocol/deeplink"
+	bctx "biebie.net/protocol/context"
+	"biebie.net/protocol/deeplink"
+	"biebie.net/protocol/ipc"
 
 	"biebie-kube/internal/access"
 )
@@ -51,18 +53,81 @@ func (s *AccessService) GetAccessStatus(ctx context.Context, profileID string) A
 // Two things are tried: a direct request over IPC, which raises the window of
 // a running Biebie Access, and failing that a deep link, which launches it.
 // Neither carries anything but a profile identifier.
-func (s *AccessService) ConnectWithAccess(ctx context.Context, profileID, customerID string) error {
+//
+// The identifier returned is the one now in effect for the cluster. It differs
+// from profileID when Biebie Access resolved a connection name to its own
+// identifier and the cluster record was rewritten to match.
+func (s *AccessService) ConnectWithAccess(ctx context.Context, profileID, customerID string) (string, error) {
 	if profileID == "" {
-		return fmt.Errorf("this cluster has no Biebie Access profile configured")
+		return "", fmt.Errorf("this cluster has no Biebie Access profile configured")
 	}
-	if err := s.core.access.Connect(ctx, profileID); err == nil {
-		return nil
+
+	resolved, err := s.core.access.Connect(ctx, profileID)
+	if err == nil {
+		return s.adopt(profileID, resolved), nil
 	}
-	return describe(s.core.launcher.ConnectProfile(ctx, profileID, customerID))
+	// Biebie Access answered, and its answer was no — most often because this
+	// cluster holds an identifier that no longer names one of its connections.
+	// The deep link is not a second chance at that: it would carry the same
+	// identifier to the same application, which would drop it just as flatly,
+	// leaving a window that appears to have ignored the click. Only a peer that
+	// never answered is worth launching.
+	if !errors.Is(err, ipc.ErrPeerUnavailable) {
+		return "", describe(err)
+	}
+
+	launch := s.core.launcher.ConnectProfile(ctx, profileID, customerID)
+	if launch == nil {
+		// Nothing answered, so nothing resolved anything: the reference stands
+		// as it was configured.
+		return profileID, nil
+	}
+	// Neither route worked. Not being installed is the likeliest reason and the
+	// only one with an obvious remedy, so it is named rather than left inside a
+	// message about a URL scheme the engineer never typed.
+	if !access.Installed() {
+		return "", fmt.Errorf("Biebie Access is not running, and does not appear to be installed on this machine")
+	}
+	return "", describe(launch)
+}
+
+// adopt records the identifier Biebie Access resolved a request to, and returns
+// the reference now in effect.
+//
+// A cluster configured with a connection name has to learn the identifier once,
+// because every notification Biebie Access sends afterwards names the tunnel by
+// identifier: left as a name, the cluster would not recognise its own customer
+// network coming up and would sit waiting for a click that already happened.
+//
+// A failure to record it is not worth failing the connection over. The request
+// was accepted, the tunnel is on its way up, and the worst case is being asked
+// to click again later.
+func (s *AccessService) adopt(configured, resolved string) string {
+	if resolved == "" || resolved == configured {
+		return configured
+	}
+	if _, err := s.core.clusters.Repository().AdoptAccessProfileID(configured, resolved); err != nil {
+		return configured
+	}
+	return resolved
 }
 
 // AccessInstalled reports whether Biebie Access appears to be on this machine.
 func (s *AccessService) AccessInstalled() bool { return access.Installed() }
+
+// ListAccessProfiles returns the connections Biebie Access holds, for the
+// cluster dialog to offer instead of a free-text identifier.
+//
+// An empty list means Biebie Access is not running or holds no connections. The
+// dialog treats those the same way: it falls back to letting the identifier be
+// typed, so a cluster can still be configured with Biebie Access closed.
+func (s *AccessService) ListAccessProfiles(ctx context.Context) ([]bctx.AccessProfile, error) {
+	profiles, err := s.core.access.Profiles(ctx)
+	if err != nil {
+		return nil, describe(err)
+	}
+	return profiles, nil
+}
 
 // HandoffResult is what the UI is told after a handoff is redeemed.
 type HandoffResult struct {

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	bctx "biebie-kube/protocol/context"
+	bctx "biebie.net/protocol/context"
 )
 
 // Cluster is a Kubernetes endpoint the engineer works with, grouped under the

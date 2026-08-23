@@ -16,7 +16,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	bctx "biebie-kube/protocol/context"
+	bctx "biebie.net/protocol/context"
 
 	"biebie-kube/internal/access"
 	"biebie-kube/internal/autoimport"

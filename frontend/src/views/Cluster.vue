@@ -19,6 +19,14 @@ const router = useRouter()
 const cluster = computed(() => clusters.clusters.find((c) => c.id === props.clusterId))
 const session = computed(() => clusters.sessions[props.clusterId])
 const connected = computed(() => session.value?.state === 'connected')
+const opening = computed(() => clusters.accessOpening(cluster.value?.access.profileId ?? ''))
+
+/** The button says what it is waiting on rather than inviting another click. */
+const accessButton = computed(() => {
+  if (clusters.accessAsked[cluster.value?.access.profileId ?? '']) return 'Opening Biebie Access…'
+  if (opening.value) return 'Connecting…'
+  return 'Connect with Biebie Access'
+})
 
 onMounted(() => clusters.open(props.clusterId))
 
@@ -71,10 +79,20 @@ async function connectAccess() {
               <div class="mt-4 flex flex-wrap gap-2">
                 <button
                   v-if="session.diagnosis.accessProfileId"
-                  class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-surface-1 hover:bg-brand-strong"
+                  class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                  :class="
+                    opening
+                      ? 'bg-info/15 text-info'
+                      : 'bg-brand text-surface-1 hover:bg-brand-strong'
+                  "
                   @click="connectAccess"
                 >
-                  Connect with Biebie Access
+                  <span
+                    v-if="opening"
+                    class="size-2 animate-pulse rounded-full bg-info"
+                    aria-hidden="true"
+                  />
+                  {{ accessButton }}
                 </button>
                 <button
                   class="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted hover:text-ink"

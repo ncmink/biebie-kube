@@ -9,7 +9,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	bctx "biebie-kube/protocol/context"
+	bctx "biebie.net/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
@@ -457,7 +457,18 @@ func (m *Manager) RetryWaiting(ctx context.Context, profileID string) {
 	m.mu.RLock()
 	var waiting []string
 	for id, s := range m.sessions {
-		if s.state == domain.ClusterWaitingAccess && s.cluster.Access.ProfileID == profileID {
+		if s.state != domain.ClusterWaitingAccess {
+			continue
+		}
+		// The cluster is re-read rather than taken from the session. Its Biebie
+		// Access reference may have been a connection name that has since been
+		// rewritten to the identifier this notification arrives under, and the
+		// session began waiting before that happened.
+		cluster, err := m.repo.Get(id)
+		if err != nil {
+			cluster = s.cluster
+		}
+		if cluster.Access.ProfileID == profileID {
 			waiting = append(waiting, id)
 		}
 	}

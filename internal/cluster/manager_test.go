@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	bctx "biebie-kube/protocol/context"
+	bctx "biebie.net/protocol/context"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
@@ -333,4 +333,111 @@ func TestProductionSortsAfterOtherEnvironments(t *testing.T) {
 	if all[0].Name != "dev" {
 		t.Fatalf("order = %q first; production must not sit where a mis-click lands", all[0].Name)
 	}
+}
+
+// A connection may be configured by the name Biebie Access shows, which is
+// readable but not what Biebie Access reports state changes under. Adopting the
+// identifier is what lets the two sides recognise the same tunnel.
+func TestAdoptingAnIdentifierRewritesEveryClusterThatUsedTheName(t *testing.T) {
+	repo := newRepo(t)
+	base := domain.ClusterInput{
+		CustomerID: "smoi", KubeconfigRef: "kubeconfig_1",
+		RequiresAccess: true, AccessProfileID: "vpn-cat",
+	}
+
+	base.Name, base.ContextName = "Staging", "staging"
+	first := addCluster(t, repo, base, "https://10.0.0.1:6443")
+	base.Name, base.ContextName = "Production", "production"
+	second := addCluster(t, repo, base, "https://10.0.0.2:6443")
+
+	// A cluster on a different connection must be left alone.
+	base.Name, base.ContextName = "Other", "other"
+	base.AccessProfileID = "govbkk"
+	other := addCluster(t, repo, base, "https://10.0.0.3:6443")
+
+	changed, err := repo.AdoptAccessProfileID("vpn-cat", "812c795a")
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if changed != 2 {
+		t.Fatalf("changed = %d, want the two clusters on that connection", changed)
+	}
+
+	for _, id := range []string{first.ID, second.ID} {
+		cluster, err := repo.Get(id)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if cluster.Access.ProfileID != "812c795a" {
+			t.Fatalf("profile = %q, want the adopted identifier", cluster.Access.ProfileID)
+		}
+	}
+	untouched, err := repo.Get(other.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if untouched.Access.ProfileID != "govbkk" {
+		t.Fatalf("an unrelated cluster was rewritten to %q", untouched.Access.ProfileID)
+	}
+}
+
+func TestAdoptingIgnoresNothingToDo(t *testing.T) {
+	repo := newRepo(t)
+	addCluster(t, repo, domain.ClusterInput{
+		Name: "Staging", CustomerID: "smoi", KubeconfigRef: "kubeconfig_1",
+		ContextName: "default", RequiresAccess: true, AccessProfileID: "vpn-cat",
+	}, "https://10.0.0.1:6443")
+
+	for _, pair := range [][2]string{{"", "x"}, {"x", ""}, {"vpn-cat", "vpn-cat"}, {"absent", "x"}} {
+		changed, err := repo.AdoptAccessProfileID(pair[0], pair[1])
+		if err != nil {
+			t.Fatalf("adopt %v: %v", pair, err)
+		}
+		if changed != 0 {
+			t.Fatalf("adopt %v changed %d clusters, want none", pair, changed)
+		}
+	}
+}
+
+// A cluster that started waiting under its old reference must still be retried
+// when the tunnel comes up under the adopted one, or the engineer is left
+// clicking connect on a customer network that is already up.
+func TestWaitingClustersAreRetriedUnderTheAdoptedIdentifier(t *testing.T) {
+	repo := newRepo(t)
+	cluster := addCluster(t, repo, domain.ClusterInput{
+		Name: "RKE2 Production", CustomerID: "smoi",
+		KubeconfigRef: "kubeconfig_1", ContextName: "default",
+		RequiresAccess: true, AccessProfileID: "vpn-cat",
+	}, "https://172.16.20.65:6443")
+
+	access := &stubAccess{installed: true, status: bctx.AccessStatus{
+		ProfileID: "vpn-cat", State: bctx.AccessDisconnected,
+	}}
+	manager := NewManager(repo, stubResolver{}, kube.NewFactory("test"), access, &recorder{})
+
+	if _, err := manager.Connect(context.Background(), cluster.ID); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if got := manager.Session(cluster.ID).State; got != domain.ClusterWaitingAccess {
+		t.Fatalf("state = %q, want waiting_access", got)
+	}
+
+	if _, err := repo.AdoptAccessProfileID("vpn-cat", "812c795a"); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	// The notification names the identifier, which the waiting session has
+	// never seen: it began waiting while the cluster still held the name.
+	manager.RetryWaiting(context.Background(), "812c795a")
+
+	asked := access.taken()
+	if len(asked) < 2 {
+		t.Fatalf("Biebie Access was asked %v, want a second question from the retry", asked)
+	}
+}
+
+func (s *stubAccess) taken() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.asked...)
 }

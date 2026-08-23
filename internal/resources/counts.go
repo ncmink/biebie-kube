@@ -23,7 +23,7 @@ func (s *Service) Counts(ctx context.Context, clusterID, namespace string) ([]do
 	out := make([]domain.KindPresence, 0, 32)
 	var wg sync.WaitGroup
 
-	for _, info := range domain.Catalogue() {
+	for _, info := range s.clusters.Catalogue(clusterID) {
 		info := info
 		wg.Add(1)
 		go func() {

@@ -23,6 +23,17 @@ func object(t *testing.T, raw string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: content}
 }
 
+// builtin resolves a compiled-in kind, which is how the services reach one
+// before handing it to Row.
+func builtin(t *testing.T, kind domain.Kind) domain.KindInfo {
+	t.Helper()
+	info, ok := domain.Lookup(kind)
+	if !ok {
+		t.Fatalf("%q is not in the catalogue", kind)
+	}
+	return info
+}
+
 func TestRunningPodIsHealthy(t *testing.T) {
 	pod := object(t, `{
 		"metadata": {"name": "api-78d9f", "namespace": "default"},
@@ -32,7 +43,7 @@ func TestRunningPodIsHealthy(t *testing.T) {
 		]}
 	}`)
 
-	row := Row(domain.KindPod, pod)
+	row := Row(builtin(t, domain.KindPod), pod)
 	if row.Health != domain.HealthHealthy {
 		t.Fatalf("health = %q", row.Health)
 	}
@@ -51,7 +62,7 @@ func TestCrashLoopIsReportedInsteadOfRunning(t *testing.T) {
 		]}
 	}`)
 
-	row := Row(domain.KindPod, pod)
+	row := Row(builtin(t, domain.KindPod), pod)
 	if row.Status != "CrashLoopBackOff" {
 		t.Fatalf("status = %q; the waiting reason is what the engineer needs", row.Status)
 	}
@@ -73,7 +84,7 @@ func TestPartiallyReadyPodIsNotHealthy(t *testing.T) {
 		]}
 	}`)
 
-	row := Row(domain.KindPod, pod)
+	row := Row(builtin(t, domain.KindPod), pod)
 	if row.Health == domain.HealthHealthy {
 		t.Fatal("a pod with an unready container must not read as healthy")
 	}
@@ -91,7 +102,7 @@ func TestTerminatingResourceIsFlagged(t *testing.T) {
 		]}
 	}`)
 
-	row := Row(domain.KindPod, pod)
+	row := Row(builtin(t, domain.KindPod), pod)
 	if row.Status != "Terminating" {
 		t.Fatalf("status = %q; a deleting pod still reports Running in its own status", row.Status)
 	}
@@ -104,7 +115,7 @@ func TestDeploymentBelowDesiredIsProgressing(t *testing.T) {
 		"status": {"readyReplicas": 1, "updatedReplicas": 3, "availableReplicas": 1}
 	}`)
 
-	row := Row(domain.KindDeployment, deployment)
+	row := Row(builtin(t, domain.KindDeployment), deployment)
 	if row.Health != domain.HealthProgress {
 		t.Fatalf("health = %q", row.Health)
 	}
@@ -116,7 +127,7 @@ func TestDeploymentBelowDesiredIsProgressing(t *testing.T) {
 func TestScaledToZeroReplicaSetIsNotCritical(t *testing.T) {
 	rs := object(t, `{"metadata": {"name": "api-old"}, "spec": {"replicas": 0}, "status": {}}`)
 
-	if row := Row(domain.KindReplicaSet, rs); row.Health != domain.HealthHealthy {
+	if row := Row(builtin(t, domain.KindReplicaSet), rs); row.Health != domain.HealthHealthy {
 		t.Fatalf("health = %q; the remains of a rollout are not a problem", row.Health)
 	}
 }
@@ -128,7 +139,7 @@ func TestSecretRowCountsKeysWithoutReadingValues(t *testing.T) {
 		"data": {"password": "c2VjcmV0MTIz", "token": "ZXlKaGJHY2lPaQ=="}
 	}`)
 
-	row := Row(domain.KindSecret, secret)
+	row := Row(builtin(t, domain.KindSecret), secret)
 	if row.Fields["keys"] != "2" {
 		t.Fatalf("keys = %q", row.Fields["keys"])
 	}
@@ -146,7 +157,7 @@ func TestPendingLoadBalancerIsCalledOut(t *testing.T) {
 		"status": {"loadBalancer": {}}
 	}`)
 
-	row := Row(domain.KindService, service)
+	row := Row(builtin(t, domain.KindService), service)
 	if row.Status != "Pending" {
 		t.Fatalf("status = %q; a LoadBalancer with no address is stuck", row.Status)
 	}
@@ -166,7 +177,7 @@ func TestCordonedNodeIsNotSilentlyReady(t *testing.T) {
 		}
 	}`)
 
-	row := Row(domain.KindNode, node)
+	row := Row(builtin(t, domain.KindNode), node)
 	if row.Status == "Ready" {
 		t.Fatal("a cordoned node reports Ready, which hides why nothing schedules onto it")
 	}
@@ -188,7 +199,7 @@ func TestWarningEventIsHighlighted(t *testing.T) {
 		"involvedObject": {"kind": "Pod", "name": "api-78d9f"}
 	}`)
 
-	row := Row(domain.KindEvent, event)
+	row := Row(builtin(t, domain.KindEvent), event)
 	if row.Health != domain.HealthWarning {
 		t.Fatalf("health = %q", row.Health)
 	}
@@ -200,7 +211,7 @@ func TestWarningEventIsHighlighted(t *testing.T) {
 func TestUnknownKindStillRendersIdentity(t *testing.T) {
 	custom := object(t, `{"metadata": {"name": "my-thing", "namespace": "default"}}`)
 
-	row := Row(domain.Kind("widgets.example.com"), custom)
+	row := Row(domain.KindInfo{Kind: domain.Kind("widgets.example.com")}, custom)
 	if row.Name != "my-thing" || row.Namespace != "default" {
 		t.Fatalf("row = %+v; a custom resource must still list", row)
 	}

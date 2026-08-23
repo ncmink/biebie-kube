@@ -83,7 +83,7 @@ func (s *Service) Diff(ctx context.Context, clusterID string, ref domain.Resourc
 // manifest whose name or namespace was changed in the editor would otherwise
 // create a second object rather than update the one on screen.
 func (s *Service) Apply(ctx context.Context, clusterID string, ref domain.ResourceRef, edited string) (domain.ApplyResult, error) {
-	info, ok := domain.Lookup(ref.Kind)
+	info, ok := s.clusters.LookupKind(clusterID, ref.Kind)
 	if !ok {
 		return domain.ApplyResult{}, fmt.Errorf("unknown resource type %q", ref.Kind)
 	}

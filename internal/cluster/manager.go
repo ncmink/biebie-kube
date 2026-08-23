@@ -71,6 +71,13 @@ type session struct {
 	namespaces []string
 	resources  []kube.APIResource
 
+	// catalogue is the navigation this cluster serves, and kinds is the same
+	// list keyed for lookup. Both are per-session because custom resources are
+	// a property of the cluster: the kind a customer's operator installed does
+	// not exist in the cluster next to it.
+	catalogue []domain.KindInfo
+	kinds     map[domain.Kind]domain.KindInfo
+
 	diagnosis *domain.Diagnosis
 	lastError string
 }
@@ -193,6 +200,40 @@ func (m *Manager) Namespaces(clusterID string) []string {
 	return nil
 }
 
+// Catalogue returns the navigation tree for a cluster: the built-in kinds it
+// actually serves, plus the custom ones its own definitions declare.
+//
+// A cluster that is not connected has told us nothing, so the compiled-in
+// catalogue stands. It is what the sidebar shows before a connection, and it
+// keeps every built-in kind addressable without a session.
+func (m *Manager) Catalogue(clusterID string) []domain.KindInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if s, ok := m.sessions[clusterID]; ok && len(s.catalogue) > 0 {
+		return append([]domain.KindInfo(nil), s.catalogue...)
+	}
+	return domain.Catalogue()
+}
+
+// LookupKind resolves a kind for one cluster.
+//
+// Custom kinds are found only through a session, because only the cluster
+// knows them. Built-in kinds resolve either way, so the compiled-in catalogue
+// is the fallback rather than an error.
+func (m *Manager) LookupKind(clusterID string, kind domain.Kind) (domain.KindInfo, bool) {
+	m.mu.RLock()
+	if s, ok := m.sessions[clusterID]; ok {
+		if info, found := s.kinds[kind]; found {
+			m.mu.RUnlock()
+			return info, true
+		}
+	}
+	m.mu.RUnlock()
+
+	return domain.Lookup(kind)
+}
+
 // APIResources returns what the cluster serves, so the sidebar can hide kinds
 // this cluster does not have.
 func (m *Manager) APIResources(clusterID string) []kube.APIResource {
@@ -301,6 +342,18 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 	namespaces, _ := client.Namespaces(ctx)
 	resources, _ := client.ServerResources(ctx)
 
+	// Definitions are read once per connection rather than per navigation: the
+	// set only changes when someone installs an operator, and the sidebar needs
+	// it before the first click. An account that may not list them cluster-wide
+	// gets a navigation without a custom section, which is the truth for it.
+	customs, _ := client.CustomResources(ctx)
+	catalogue := catalogueFor(resources, customs)
+
+	kinds := make(map[domain.Kind]domain.KindInfo, len(catalogue))
+	for _, info := range catalogue {
+		kinds[info.Kind] = info
+	}
+
 	namespace := m.repo.Namespace(clusterID)
 	if namespace == "" {
 		namespace = defaultNamespace(namespaces)
@@ -331,6 +384,8 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 		connectedAt:   &now,
 		namespaces:    namespaces,
 		resources:     resources,
+		catalogue:     catalogue,
+		kinds:         kinds,
 	}
 	view := m.sessionView(clusterID)
 	m.mu.Unlock()

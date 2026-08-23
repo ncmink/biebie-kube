@@ -203,27 +203,11 @@ func (s *ClusterService) SetAutoImportEnabled(enabled bool) error {
 	return describe(s.core.imports.SetEnabled(enabled))
 }
 
-// ResourceCatalogue returns the navigation tree, filtered to what this cluster
-// actually serves so the sidebar does not offer kinds that will 404.
+// ResourceCatalogue returns the navigation tree for a cluster: the built-in
+// kinds it actually serves, so the sidebar does not offer kinds that will 404,
+// and the custom kinds its own definitions declare.
 func (s *ClusterService) ResourceCatalogue(clusterID string) []domain.KindInfo {
-	full := domain.Catalogue()
-	served := s.core.clusters.APIResources(clusterID)
-	if len(served) == 0 {
-		return full
-	}
-
-	available := make(map[string]struct{}, len(served))
-	for _, resource := range served {
-		available[resource.Group+"/"+resource.Resource] = struct{}{}
-	}
-
-	out := make([]domain.KindInfo, 0, len(full))
-	for _, info := range full {
-		if _, ok := available[info.Group+"/"+info.Resource]; ok {
-			out = append(out, info)
-		}
-	}
-	return out
+	return s.core.clusters.Catalogue(clusterID)
 }
 
 func (s *ClusterService) serverFor(input domain.ClusterInput) (string, error) {

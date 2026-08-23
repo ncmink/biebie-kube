@@ -40,10 +40,16 @@ var renderers = map[domain.Kind]renderer{
 	domain.KindNamespace:             renderNamespace,
 	domain.KindNode:                  renderNode,
 	domain.KindEvent:                 renderEvent,
+
+	domain.KindCustomResourceDefinition: renderCRD,
 }
 
 // Row renders one object for a table.
-func Row(kind domain.Kind, obj *unstructured.Unstructured) domain.ResourceRow {
+//
+// The kind's full description is taken rather than its name because a custom
+// resource carries its own columns: what to read out of it is known only from
+// the definition the cluster served.
+func Row(info domain.KindInfo, obj *unstructured.Unstructured) domain.ResourceRow {
 	row := domain.ResourceRow{
 		UID:       string(obj.GetUID()),
 		Name:      obj.GetName(),
@@ -51,8 +57,14 @@ func Row(kind domain.Kind, obj *unstructured.Unstructured) domain.ResourceRow {
 		CreatedAt: obj.GetCreationTimestamp().Time,
 		Health:    domain.HealthUnknown,
 	}
-	if render, ok := renderers[kind]; ok {
+	switch render, ok := renderers[info.Kind]; {
+	case ok:
 		health, status, fields := render(obj)
+		row.Health = health
+		row.Status = status
+		row.Fields = fields
+	case info.Custom:
+		health, status, fields := renderCustom(info, obj)
 		row.Health = health
 		row.Status = status
 		row.Fields = fields

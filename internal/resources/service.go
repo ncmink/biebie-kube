@@ -39,7 +39,7 @@ func NewService(clusters *cluster.Manager) *Service {
 // first view of a resource type appears immediately while the watch is still
 // syncing, and later views cost nothing.
 func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, namespace string) (domain.ResourcePage, error) {
-	info, ok := domain.Lookup(kind)
+	info, ok := s.clusters.LookupKind(clusterID, kind)
 	if !ok {
 		return domain.ResourcePage{}, fmt.Errorf("unknown resource type %q", kind)
 	}
@@ -65,7 +65,7 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 		Rows:       make([]domain.ResourceRow, 0, len(objects)),
 	}
 	for _, obj := range objects {
-		page.Rows = append(page.Rows, Row(kind, obj))
+		page.Rows = append(page.Rows, Row(info, obj))
 	}
 
 	// Newest first: an engineer opening a pod list is almost always looking
@@ -129,7 +129,7 @@ func (s *Service) read(
 
 // Get returns one object in full, for the detail and YAML views.
 func (s *Service) Get(ctx context.Context, clusterID string, ref domain.ResourceRef) (*unstructured.Unstructured, error) {
-	info, ok := domain.Lookup(ref.Kind)
+	info, ok := s.clusters.LookupKind(clusterID, ref.Kind)
 	if !ok {
 		return nil, fmt.Errorf("unknown resource type %q", ref.Kind)
 	}
@@ -151,7 +151,7 @@ func (s *Service) Get(ctx context.Context, clusterID string, ref domain.Resource
 // and cluster before it calls this: deleting the right deployment in the wrong
 // customer's production cluster is the failure this product exists to prevent.
 func (s *Service) Delete(ctx context.Context, clusterID string, ref domain.ResourceRef) error {
-	info, ok := domain.Lookup(ref.Kind)
+	info, ok := s.clusters.LookupKind(clusterID, ref.Kind)
 	if !ok {
 		return fmt.Errorf("unknown resource type %q", ref.Kind)
 	}
@@ -179,7 +179,7 @@ func (s *Service) Search(ctx context.Context, clusterID, query, namespace string
 
 	var hits []domain.SearchHit
 	for _, kind := range domain.SearchableKinds() {
-		info, ok := domain.Lookup(kind)
+		info, ok := s.clusters.LookupKind(clusterID, kind)
 		if !ok {
 			continue
 		}
@@ -211,7 +211,7 @@ func (s *Service) Search(ctx context.Context, clusterID, query, namespace string
 // Watch starts a watch for a table the user is looking at, so changes arrive
 // as events rather than by polling.
 func (s *Service) Watch(clusterID string, kind domain.Kind, namespace string) error {
-	info, ok := domain.Lookup(kind)
+	info, ok := s.clusters.LookupKind(clusterID, kind)
 	if !ok {
 		return fmt.Errorf("unknown resource type %q", kind)
 	}

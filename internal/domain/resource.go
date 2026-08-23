@@ -60,7 +60,16 @@ const (
 	KindNamespace               Kind = "namespaces"
 	KindNode                    Kind = "nodes"
 	KindEvent                   Kind = "events"
+
+	KindCustomResourceDefinition Kind = "customresourcedefinitions"
 )
+
+// CustomKind names a custom resource type.
+//
+// Plural and group together are what makes it unique — two operators may both
+// define "policies" — and the result cannot collide with a built-in kind,
+// which is a bare plural with no dot in it.
+func CustomKind(plural, group string) Kind { return Kind(plural + "." + group) }
 
 // Category groups kinds in the sidebar.
 type Category string
@@ -73,6 +82,12 @@ const (
 	CategoryStorage   Category = "Storage"
 	CategoryAccess    Category = "Access Control"
 	CategoryCluster   Category = "Cluster"
+
+	// CategoryCustom holds what the cluster's own operators installed. Its
+	// entries are discovered per cluster instead of being compiled in, so it
+	// is grouped a second time by API group in the sidebar — a cluster with
+	// twenty definitions across five groups is a list nobody can scan flat.
+	CategoryCustom Category = "Custom Resources"
 )
 
 // KindInfo describes one entry in the resource catalogue.
@@ -98,6 +113,11 @@ type KindInfo struct {
 	// Standalone sits outside a collapsible group, the way Nodes, Namespaces
 	// and Events do in the sidebar.
 	Standalone bool `json:"standalone,omitempty"`
+
+	// Custom marks an entry that came from a CustomResourceDefinition in the
+	// cluster rather than from the compiled-in catalogue. Its columns are the
+	// definition's own, so two clusters can show the same kind differently.
+	Custom bool `json:"custom,omitempty"`
 }
 
 // Column describes one kind-specific table column.
@@ -107,6 +127,14 @@ type Column struct {
 
 	// Mono renders the value in the monospace face, for numbers and IPs.
 	Mono bool `json:"mono,omitempty"`
+
+	// Path is the JSONPath a custom resource's value is read from, copied from
+	// the definition's own printer columns. Built-in kinds leave it empty and
+	// are rendered by compiled-in code instead.
+	//
+	// It stays on this side of the binding: the frontend receives the value
+	// already resolved in ResourceRow.Fields and has no expression to evaluate.
+	Path string `json:"-"`
 }
 
 // ResourceRef addresses one object.

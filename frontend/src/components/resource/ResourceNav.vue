@@ -18,7 +18,8 @@ const open = ref<Record<string, boolean>>(readOpen())
 const presence = ref<Record<string, number>>({})
 
 type NavItem = { type: 'item'; kind: KindInfo }
-type NavGroup = { type: 'group'; category: string; kinds: KindInfo[] }
+type NavSubgroup = { key: string; label: string; kinds: KindInfo[] }
+type NavGroup = { type: 'group'; category: string; kinds: KindInfo[]; subgroups: NavSubgroup[] }
 type NavEntry = NavItem | NavGroup
 
 const catalogue = computed(() => clusters.catalogues[props.clusterId] ?? [])
@@ -46,7 +47,19 @@ const tree = computed<NavEntry[]>(() => {
     }
     if (!group || group.category !== kind.category) {
       flush()
-      group = { type: 'group', category: kind.category, kinds: [kind] }
+      group = { type: 'group', category: kind.category, kinds: [], subgroups: [] }
+    }
+    // A custom resource is filed under its API group. A cluster whose
+    // operators installed twenty definitions is otherwise one flat list
+    // nobody can scan, and the group is the part an engineer recognises.
+    if (kind.custom) {
+      const label = kind.group || 'core'
+      let subgroup = group.subgroups.find((entry) => entry.label === label)
+      if (!subgroup) {
+        subgroup = { key: `${kind.category}/${label}`, label, kinds: [] }
+        group.subgroups.push(subgroup)
+      }
+      subgroup.kinds.push(kind)
       continue
     }
     group.kinds.push(kind)
@@ -68,8 +81,24 @@ function isOpen(category: string): boolean {
   return open.value[category] !== false
 }
 
+/**
+ * An API group starts closed, unlike a category.
+ *
+ * The categories are the same six on every cluster and worth showing open. A
+ * cluster's API groups are however many its operators brought, so expanding
+ * them all would bury the built-in navigation under somebody else's CRDs.
+ */
+function isSubgroupOpen(key: string): boolean {
+  return open.value[key] === true
+}
+
 function toggle(category: string) {
   open.value = { ...open.value, [category]: !isOpen(category) }
+  localStorage.setItem(openKey, JSON.stringify(open.value))
+}
+
+function toggleSubgroup(key: string) {
+  open.value = { ...open.value, [key]: !isSubgroupOpen(key) }
   localStorage.setItem(openKey, JSON.stringify(open.value))
 }
 
@@ -101,9 +130,15 @@ async function refreshCounts() {
 
 watch(activeKind, (kind) => {
   const info = catalogue.value.find((entry) => entry.kind === kind)
-  if (info && !info.standalone) {
-    open.value = { ...open.value, [info.category]: true }
+  if (!info || info.standalone) return
+
+  const next = { ...open.value, [info.category]: true }
+  // Reaching a custom resource through search or a deep link must reveal where
+  // it lives, not just the section two levels above it.
+  if (info.custom) {
+    next[`${info.category}/${info.group || 'core'}`] = true
   }
+  open.value = next
 })
 
 onMounted(refreshCounts)
@@ -217,6 +252,12 @@ onUnmounted(() => stopWatch?.())
               stroke-width="1.2"
             />
             <path
+              v-else-if="entry.category === 'Custom Resources'"
+              d="M6.5 2.5h3v1.6a1.4 1.4 0 002.4 1l1.1 1.1a1.4 1.4 0 00-1 2.4v3h-1.6a1.4 1.4 0 00-2.8 0H5.5v-3a1.4 1.4 0 000-2.8v-1.6h1z"
+              stroke="currentColor"
+              stroke-width="1.2"
+            />
+            <path
               v-else
               d="M8 2.8l4.5 2v3.4c0 2.6-1.8 4.4-4.5 5.3-2.7-.9-4.5-2.7-4.5-5.3V4.8l4.5-2z"
               stroke="currentColor"
@@ -250,6 +291,36 @@ onUnmounted(() => stopWatch?.())
           >
             Port Forwarding
           </RouterLink>
+
+          <div v-for="subgroup in entry.subgroups" :key="subgroup.key" class="mt-px">
+            <button
+              class="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-ink-muted hover:bg-surface-2 hover:text-ink"
+              @click="toggleSubgroup(subgroup.key)"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                class="size-3 shrink-0 text-ink-faint transition-transform"
+                :class="isSubgroupOpen(subgroup.key) ? 'rotate-90' : ''"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path d="M6 4l5 4-5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              <span class="truncate font-mono text-[11px]">{{ subgroup.label }}</span>
+            </button>
+
+            <div v-if="isSubgroupOpen(subgroup.key)" class="ml-3 border-l border-line/80 py-0.5 pl-2">
+              <RouterLink
+                v-for="kind in subgroup.kinds"
+                :key="kind.kind"
+                :to="{ name: 'resources', params: { clusterId, kind: kind.kind } }"
+                class="mt-px block truncate rounded-md px-2 py-1"
+                :class="linkClass(kind.kind)"
+              >
+                {{ kind.title }}
+              </RouterLink>
+            </div>
+          </div>
         </div>
       </div>
     </template>

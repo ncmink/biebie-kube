@@ -240,6 +240,20 @@ var catalogue = []KindInfo{
 		Kind: KindRoleBinding, Title: "Role Bindings", Category: CategoryAccess,
 		Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings", Namespaced: true,
 	},
+
+	// The definitions sit at the head of the custom section, before the kinds
+	// they describe, because they are how an engineer finds out what an
+	// unfamiliar cluster's operators installed in the first place.
+	{
+		Kind: KindCustomResourceDefinition, Title: "Definitions", Category: CategoryCustom,
+		Group: "apiextensions.k8s.io", Version: "v1", Resource: "customresourcedefinitions", Namespaced: false,
+		Columns: []Column{
+			{Key: "group", Title: "Group"},
+			{Key: "kind", Title: "Kind"},
+			{Key: "scope", Title: "Scope"},
+			{Key: "versions", Title: "Versions", Mono: true},
+		},
+	},
 }
 
 var byKind = func() map[Kind]KindInfo {

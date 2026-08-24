@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	bctx "biebie.net/protocol/context"
+	bctx "github.com/ncmink/biebie-protocol/context"
 
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/kubeconfig"

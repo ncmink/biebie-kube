@@ -46,7 +46,7 @@ They share the Biebie Context Protocol, and nothing else. No shared
 database, no shared business logic. Either application runs with the other
 uninstalled.
 
-The contract is its own module, `biebie.net/protocol`, checked out beside this
+The contract is its own module, `github.com/ncmink/biebie-protocol`, checked out beside this
 repository as `biebie-protocol/` and resolved through a `replace` directive in
 `go.mod`. Both applications point at that one copy, so changing the wire format
 breaks the build in both at once instead of leaving a mismatch to be found at
@@ -183,7 +183,7 @@ Access:
 
 ```text
 projects/biebie/
-├── biebie-protocol/       biebie.net/protocol — the shared wire contract
+├── biebie-protocol/       github.com/ncmink/biebie-protocol — the wire contract
 ├── biebie-kube/           this repository
 └── biebie-access/         the other half
 ```

@@ -10,8 +10,8 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
-	bctx "biebie.net/protocol/context"
-	"biebie.net/protocol/deeplink"
+	bctx "github.com/ncmink/biebie-protocol/context"
+	"github.com/ncmink/biebie-protocol/deeplink"
 
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/domain"

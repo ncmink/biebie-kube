@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"biebie.net/protocol/deeplink"
+	"github.com/ncmink/biebie-protocol/deeplink"
 )
 
 // Launcher opens Biebie Access from Biebie Kube.

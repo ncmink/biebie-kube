@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"biebie.net/protocol/ipc"
+	"github.com/ncmink/biebie-protocol/ipc"
 
 	"biebie-kube/internal/access"
 )

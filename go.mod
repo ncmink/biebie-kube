@@ -3,8 +3,8 @@ module biebie-kube
 go 1.25.0
 
 require (
-	biebie.net/protocol v0.0.0
 	github.com/google/uuid v1.6.0
+	github.com/ncmink/biebie-protocol v0.0.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.9
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
@@ -18,7 +18,7 @@ require (
 // three repositories sit side by side in one checkout. Both applications point
 // here, so a change to the wire format is a compile error in both at once
 // instead of a mismatch discovered at runtime.
-replace biebie.net/protocol => ../biebie-protocol
+replace github.com/ncmink/biebie-protocol => ../biebie-protocol
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect

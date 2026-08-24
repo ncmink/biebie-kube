@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	bctx "biebie.net/protocol/context"
-	"biebie.net/protocol/ipc"
+	bctx "github.com/ncmink/biebie-protocol/context"
+	"github.com/ncmink/biebie-protocol/ipc"
 )
 
 // statusCacheTTL smooths repeated status questions.

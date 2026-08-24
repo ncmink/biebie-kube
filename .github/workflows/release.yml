@@ -9,30 +9,52 @@ on:
       version:
         description: 'Version tag to build (e.g. v0.1.0)'
         required: true
+      protocol_ref:
+        description: 'biebie-protocol ref to build against (blank = its default branch)'
+        required: false
+        default: ''
 
 env:
   APP_NAME: biebie-kube
   GO_VERSION: '1.25.0'
   NODE_VERSION: '22'
   WAILS_VERSION: v3.0.0-beta.9
+  PROTOCOL_REPO: ncmink/biebie-protocol
 
+# go.mod resolves github.com/ncmink/biebie-protocol through a replace directive
+# pointing at ../biebie-protocol, so a release build needs both repositories
+# checked out side by side exactly as they are during development. actions/checkout
+# refuses a path outside the workspace, so this application is checked out into a
+# subdirectory too and every step runs from there.
 jobs:
   macos:
     name: Build macOS (.dmg + updater zip)
     runs-on: macos-14
+    defaults:
+      run:
+        working-directory: biebie-kube
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: biebie-kube
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROTOCOL_REPO }}
+          ref: ${{ github.event.inputs.protocol_ref }}
+          token: ${{ secrets.PROTOCOL_TOKEN }}
+          path: biebie-protocol
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
+          cache-dependency-path: biebie-kube/go.sum
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: biebie-kube/frontend/package-lock.json
 
       - name: Version
         run: |
@@ -58,26 +80,38 @@ jobs:
         with:
           name: macos
           path: |
-            bin/*.dmg
-            bin/*darwin-universal.zip
+            biebie-kube/bin/*.dmg
+            biebie-kube/bin/*darwin-universal.zip
           if-no-files-found: error
 
   windows:
     name: Build Windows (NSIS + updater zip)
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: biebie-kube
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: biebie-kube
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PROTOCOL_REPO }}
+          ref: ${{ github.event.inputs.protocol_ref }}
+          token: ${{ secrets.PROTOCOL_TOKEN }}
+          path: biebie-protocol
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
+          cache-dependency-path: biebie-kube/go.sum
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: biebie-kube/frontend/package-lock.json
 
       - name: Version
         shell: bash
@@ -111,8 +145,8 @@ jobs:
         with:
           name: windows
           path: |
-            dist/*.exe
-            dist/*.zip
+            biebie-kube/dist/*.exe
+            biebie-kube/dist/*.zip
           if-no-files-found: error
 
   release:

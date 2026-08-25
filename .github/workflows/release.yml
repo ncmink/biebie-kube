@@ -65,10 +65,64 @@ jobs:
       - name: Install wails3
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
-      - name: Package universal .app + .dmg
+      # codesign can only reach an identity held in a keychain, so the exported
+      # certificate has to be imported before anything is signed. The keychain is
+      # created fresh per run and deleted again by the last step in this job.
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
         run: |
-          wails3 task darwin:package:universal APP_VERSION="$APP_VERSION"
-          wails3 task darwin:create:dmg
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/codesign.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERTIFICATE="$RUNNER_TEMP/certificate.p12"
+
+          printf '%s' "$CERTIFICATE_P12_BASE64" | base64 -D > "$CERTIFICATE"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" \
+            -f pkcs12 -T /usr/bin/codesign
+          rm -f "$CERTIFICATE"
+
+          # Without an explicit partition list, the first codesign call raises a
+          # GUI password prompt that nothing can answer and the job hangs until
+          # it times out.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+
+          # Prepend rather than replace: dropping the login keychain from the
+          # search list breaks other tooling on the runner.
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "the supplied certificate holds no Developer ID Application identity" >&2
+            exit 1
+          fi
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Package universal .app
+        run: wails3 task darwin:package:universal APP_VERSION="$APP_VERSION"
+
+      # Must happen before the .dmg is built and before the updater zip is
+      # created, so both ship the Developer ID signature rather than the ad-hoc
+      # one the packaging task applies.
+      - name: Codesign app bundle
+        run: |
+          set -euo pipefail
+          codesign --force --timestamp --options runtime \
+            --keychain "$SIGNING_KEYCHAIN" --sign "$SIGNING_IDENTITY" \
+            "bin/${APP_NAME}.app"
+          codesign --verify --strict --deep --verbose=2 "bin/${APP_NAME}.app"
+
+      - name: Create .dmg
+        run: wails3 task darwin:create:dmg
 
       - name: Rename artifacts
         run: |
@@ -76,13 +130,83 @@ jobs:
           mv "$DMG" "bin/${APP_NAME}-${VERSION}-macos-universal.dmg"
           ditto -c -k --keepParent "bin/${APP_NAME}.app" "bin/${APP_NAME}-${VERSION}-darwin-universal.zip"
 
+      # The disk image is a separate distributable and carries its own
+      # signature. Hardened runtime is not a thing for a container format.
+      - name: Codesign .dmg
+        run: |
+          set -euo pipefail
+          codesign --force --timestamp \
+            --keychain "$SIGNING_KEYCHAIN" --sign "$SIGNING_IDENTITY" \
+            "bin/${APP_NAME}-${VERSION}-macos-universal.dmg"
+
+      # Only the .dmg needs a notarisation ticket. The updater zip is fetched
+      # over HTTP by the running app, which does not set com.apple.quarantine,
+      # so Gatekeeper never evaluates the bytes the updater swaps into place.
+      - name: Notarize .dmg
+        env:
+          KEY_P8_BASE64: ${{ secrets.APPLE_NOTARIZATION_KEY_P8_BASE64 }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/notarization-key.p8"
+          DMG="bin/${APP_NAME}-${VERSION}-macos-universal.dmg"
+
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s' "$KEY_P8_BASE64" | base64 -D > "$KEY"
+
+          # Submit and wait as two calls so the submission ID is known even when
+          # the wait fails, which is what makes the log retrieval below possible.
+          SUBMISSION="$(xcrun notarytool submit "$DMG" \
+            --key "$KEY" --key-id "$KEY_ID" --issuer "$ISSUER_ID" \
+            --output-format json | jq -r '.id')"
+          echo "notarization submission: $SUBMISSION"
+
+          # The status is checked explicitly rather than trusted to the exit
+          # code: notarytool has shipped versions that exit 0 on a rejection.
+          STATUS="$(xcrun notarytool wait "$SUBMISSION" \
+            --key "$KEY" --key-id "$KEY_ID" --issuer "$ISSUER_ID" \
+            --output-format json | jq -r '.status')"
+          echo "notarization status: $STATUS"
+
+          if [ "$STATUS" != "Accepted" ]; then
+            # A rejection on its own says only "Invalid". The per-file reasons
+            # are in the log, and it is the only way to find out what Apple
+            # objected to.
+            xcrun notarytool log "$SUBMISSION" \
+              --key "$KEY" --key-id "$KEY_ID" --issuer "$ISSUER_ID" || true
+            exit 1
+          fi
+
+          # Embeds the ticket so a machine that is offline on first launch can
+          # still clear the download.
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+
+      # Signed here rather than in the release job: signing needs the private
+      # protocol checkout and Go toolchain this job already has.
+      - name: Sign updater asset
+        env:
+          UPDATER_SIGNING_KEY: ${{ secrets.UPDATER_SIGNING_KEY }}
+        run: go run ./cmd/sign-release "bin/${APP_NAME}-${VERSION}-darwin-universal.zip"
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos
           path: |
             biebie-kube/bin/*.dmg
             biebie-kube/bin/*darwin-universal.zip
+            biebie-kube/bin/*darwin-universal.zip.sig
           if-no-files-found: error
+
+      # Runners are ephemeral, but a failed job can leave the signing key in a
+      # keychain that later steps or a reused runner could read.
+      - name: Remove signing keychain
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: |
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security delete-keychain "$RUNNER_TEMP/codesign.keychain-db" 2>/dev/null || true
 
   windows:
     name: Build Windows (NSIS + updater zip)
@@ -141,12 +265,20 @@ jobs:
           Move-Item "bin\$env:APP_NAME-*-installer.exe" "dist\$env:APP_NAME-$env:VERSION-windows-amd64-installer.exe"
           Compress-Archive -Path "bin\$env:APP_NAME.exe" -DestinationPath "dist\$env:APP_NAME-$env:VERSION-windows-amd64.zip"
 
+      # Signed here rather than in the release job: signing needs the private
+      # protocol checkout and Go toolchain this job already has.
+      - name: Sign updater asset
+        env:
+          UPDATER_SIGNING_KEY: ${{ secrets.UPDATER_SIGNING_KEY }}
+        run: go run ./cmd/sign-release "dist/${{ env.APP_NAME }}-${{ env.VERSION }}-windows-amd64.zip"
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             biebie-kube/dist/*.exe
             biebie-kube/dist/*.zip
+            biebie-kube/dist/*.zip.sig
           if-no-files-found: error
 
   release:

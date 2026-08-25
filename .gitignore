@@ -8,3 +8,9 @@ build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 # Bindings are generated from the Go services on every build. Committing them
 # would let a stale copy disagree with the Go code that produced it.
 frontend/bindings
+
+# The updater signing key. Its public half lives in updater-key.pem and is
+# meant to be committed; the private half belongs in a secret store only, and
+# committing it would let anyone publish an update this app trusts.
+/updater-key
+/updater-key.pub

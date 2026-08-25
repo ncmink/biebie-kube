@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"log"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -12,6 +13,14 @@ import (
 
 // updateRepository is the public GitHub repo whose Releases feed the updater.
 const updateRepository = "ncmink/biebie-kube"
+
+// updaterPublicKey is the trust root for release signatures, pinned here at
+// build time so a compromised or proxied release feed cannot nominate its own
+// key. Its private half signs artifacts in the release workflow and never
+// leaves the secret store; see cmd/sign-release.
+//
+//go:embed updater-key.pem
+var updaterPublicKey []byte
 
 // updaterWindowCSS tints the framework update window to match Biebie Kube.
 const updaterWindowCSS = `:root {
@@ -45,7 +54,8 @@ func configureUpdater(app *application.App) {
 	}
 	if err := app.Updater.Init(updater.Config{
 		CurrentVersion: appVersion,
-		Providers:      []updater.Provider{gh},
+		PublicKey:      updaterPublicKey,
+		Providers:      []updater.Provider{update.WithSignatures(gh)},
 		Window: &updater.BuiltinWindow{
 			CSS: updaterWindowCSS,
 		},

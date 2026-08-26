@@ -47,6 +47,7 @@ func configureUpdater(app *application.App) {
 		Repository:    updateRepository,
 		ChecksumAsset: "SHA256SUMS",
 		AssetMatcher:  update.MatchAsset,
+		HTTPClient:    update.NewHTTPClient(),
 	})
 	if err != nil {
 		log.Printf("update source could not be configured: %v", err)

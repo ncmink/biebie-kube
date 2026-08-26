@@ -17,6 +17,7 @@ import (
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/logs"
 	"biebie-kube/internal/portforward"
+	"biebie-kube/internal/shellenv"
 	"biebie-kube/internal/terminal"
 )
 
@@ -45,6 +46,15 @@ func init() {
 }
 
 func main() {
+	// The PATH is repaired before any kubeconfig is read. A cluster opened by
+	// autoimport or by a deep link runs its exec plugin within moments of
+	// startup, and a helper that was not found once is cached as a failure.
+	// A failure here is not fatal: a kubeconfig with embedded credentials
+	// needs no helper at all.
+	if _, err := shellenv.Apply(context.Background()); err != nil {
+		log.Printf("Biebie Kube could not read the login shell's PATH, so a credential helper may not be found: %v", err)
+	}
+
 	core, err := NewCore()
 	if err != nil {
 		log.Fatalf("Biebie Kube could not start: %v", err)

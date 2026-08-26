@@ -78,6 +78,12 @@ const (
 	FailureForbidden      FailureKind = "authorization_failure"
 	FailureAPIUnavailable FailureKind = "kubernetes_unavailable"
 	FailureConfig         FailureKind = "configuration_error"
+
+	// FailureCredentialHelper is separate from FailureUnauthorized because the
+	// cluster never saw a request: the exec plugin that mints the token could
+	// not be run. The fix is on this machine, and telling the user the cluster
+	// rejected them would send them to the cluster owner for nothing.
+	FailureCredentialHelper FailureKind = "credential_helper_failure"
 )
 
 // Diagnosis explains a failed connection layer by layer.

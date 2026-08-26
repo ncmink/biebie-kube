@@ -30,6 +30,14 @@ func classify(err error) (domain.FailureKind, string) {
 		return domain.FailureNone, ""
 	}
 
+	// The exec plugin is checked before anything else. client-go wraps a
+	// missing helper in the same request error as a network failure, so left
+	// to the cases below it reads as an unreachable cluster and sends the
+	// engineer to look at their VPN.
+	if kind, summary := classifyExec(err.Error()); kind != domain.FailureNone {
+		return kind, summary
+	}
+
 	switch {
 	case apierrors.IsUnauthorized(err):
 		return domain.FailureUnauthorized, "The cluster rejected these credentials."
@@ -75,6 +83,49 @@ func classify(err error) (domain.FailureKind, string) {
 	return domain.FailureAPIUnavailable, "The cluster could not be reached."
 }
 
+// execPrefix is how client-go introduces both of its exec plugin failures.
+// The typed *exec.Error is discarded before the error reaches a caller, so the
+// message is the only thing left to read.
+const execPrefix = "exec: executable "
+
+// classifyExec recognises a kubeconfig exec plugin that could not produce a
+// token, and names the binary at fault.
+//
+// The name matters more than the category here: "aws" and "gke-gcloud-auth-
+// plugin" are installed in completely different ways, and a message that omits
+// which one is missing leaves the user to read the raw error anyway.
+func classifyExec(message string) (domain.FailureKind, string) {
+	start := strings.Index(message, execPrefix)
+	if start < 0 {
+		return domain.FailureNone, ""
+	}
+	rest := message[start+len(execPrefix):]
+
+	if name, ok := commandBefore(rest, " not found"); ok {
+		return domain.FailureCredentialHelper, fmt.Sprintf(
+			"The credential helper %q is not installed, or is not on the PATH this application was started with.", name)
+	}
+	if name, ok := commandBefore(rest, " failed with exit code"); ok {
+		return domain.FailureCredentialHelper, fmt.Sprintf(
+			"The credential helper %q ran but did not return a token.", name)
+	}
+	return domain.FailureNone, ""
+}
+
+// commandBefore reads a command name that ends at sep.
+//
+// Rejecting a name containing a space keeps the two message forms apart: the
+// exit code message also ends with the word "found" further along, and would
+// otherwise be read as a missing binary whose name is the rest of the
+// sentence.
+func commandBefore(rest, sep string) (string, bool) {
+	name, _, found := strings.Cut(rest, sep)
+	if !found || name == "" || strings.ContainsAny(name, " \t\n") {
+		return "", false
+	}
+	return name, true
+}
+
 // stateFor maps a failure to the state the session lands in, so the UI shows
 // one consistent status rather than each caller inventing its own.
 func stateFor(kind domain.FailureKind) domain.ClusterState {
@@ -85,7 +136,7 @@ func stateFor(kind domain.FailureKind) domain.ClusterState {
 		return domain.ClusterWaitingAccess
 	case domain.FailureUnauthorized, domain.FailureForbidden:
 		return domain.ClusterUnauthorized
-	case domain.FailureConfig:
+	case domain.FailureConfig, domain.FailureCredentialHelper:
 		return domain.ClusterFailed
 	default:
 		return domain.ClusterUnreachable

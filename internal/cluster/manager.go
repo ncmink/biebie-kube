@@ -323,10 +323,19 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 	serverVersion, err := client.FetchServerVersion(versionCtx)
 	if err != nil {
 		kind, summary := classify(err)
-		if kind == domain.FailureTLS {
+		switch kind {
+		case domain.FailureTLS:
 			probes.fail(domain.LayerTLS, summary, time.Since(started))
 			probes.skipRest(domain.LayerKubernetes)
-		} else {
+		case domain.FailureCredentialHelper:
+			// client-go runs the exec plugin before it opens a connection, so
+			// no request left the machine. Reporting a completed handshake
+			// here would be inventing a result the code never observed, and it
+			// is exactly the reassuring line that makes a PATH problem look
+			// like a cluster problem.
+			probes.skip(domain.LayerTLS, "no request was sent, so TLS was not reached")
+			probes.fail(domain.LayerKubernetes, summary, time.Since(started))
+		default:
 			probes.pass(domain.LayerTLS, "TLS handshake completed", time.Since(started))
 			probes.fail(domain.LayerKubernetes, summary, time.Since(started))
 		}

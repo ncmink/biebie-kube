@@ -273,10 +273,7 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 
 	probes := &builder{}
 
-	if diag := m.checkAccess(ctx, cluster, probes); diag != nil {
-		m.transition(cluster, domain.ClusterWaitingAccess, diag, diag.Summary)
-		return m.Session(clusterID), nil
-	}
+	network := m.checkAccess(ctx, cluster, probes)
 
 	path, err := m.configs.PathFor(cluster.KubeconfigRef)
 	if err != nil {
@@ -292,9 +289,17 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 
 		detail := err.Error()
 		profileID := ""
-		if cluster.Access.Required {
+		switch {
+		case network.confirmed:
 			profileID = cluster.Access.ProfileID
 			detail = "Customer network access is connected, but the API server port did not answer. " + detail
+		case network.required:
+			// The port stayed silent and the customer network was never
+			// confirmed up, so that is the likeliest thing to fix — and the
+			// waiting state lets the retry fire the moment it comes up.
+			profileID = cluster.Access.ProfileID
+			kind, summary = domain.FailureAccessDown, "Customer network access is required."
+			detail = network.reason + " " + detail
 		}
 		diag := probes.diagnosis(kind, summary, detail, profileID)
 		m.transition(cluster, stateFor(kind), diag, summary)
@@ -394,47 +399,53 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 	return view, nil
 }
 
-// checkAccess verifies customer connectivity before Kubernetes is attempted.
+// accessCheck is what Biebie Access could say about a cluster's customer
+// network before the connection was attempted.
+type accessCheck struct {
+	required bool
+	// confirmed is true only when Biebie Access answered and reported the
+	// customer network up.
+	confirmed bool
+	// reason explains, in the engineer's terms, why it was not confirmed.
+	reason string
+}
+
+// checkAccess asks Biebie Access about the customer network this cluster sits
+// behind. It advises; it does not decide.
 //
-// Returning a diagnosis means "do not continue": the cluster is unreachable
-// for a reason Biebie Kube cannot fix, and the UI should offer Biebie Access
-// rather than a Kubernetes error.
-func (m *Manager) checkAccess(ctx context.Context, cluster domain.Cluster, probes *builder) *domain.Diagnosis {
+// Biebie Access is one way to reach a customer network, not the only one: the
+// engineer may already be on site, on the customer's own VPN client, or the
+// endpoint may be public despite the cluster being marked as needing access.
+// Refusing to dial because Biebie Access is absent would call those clusters
+// unreachable without ever having looked. So an unconfirmed network is recorded
+// as untested and the connection is tried anyway — if the network does answer,
+// nothing was ever wrong, and if it does not, the caller has the reason to hand.
+func (m *Manager) checkAccess(ctx context.Context, cluster domain.Cluster, probes *builder) accessCheck {
 	if !cluster.Access.Required {
-		return nil
+		return accessCheck{}
+	}
+
+	unconfirmed := func(probe, reason string) accessCheck {
+		probes.skip(domain.LayerAccess, probe)
+		return accessCheck{required: true, reason: reason}
 	}
 
 	if m.access == nil || !m.access.Installed(ctx) {
-		probes.fail(domain.LayerAccess, "Biebie Access is not running", 0)
-		probes.skipRest(domain.LayerTCP, domain.LayerTLS, domain.LayerKubernetes)
-		return probes.diagnosis(
-			domain.FailureAccessDown,
-			"Biebie Access is required to reach this cluster.",
-			"This cluster is only reachable over a customer network. Start Biebie Access and connect the profile, then try again.",
-			cluster.Access.ProfileID,
+		return unconfirmed(
+			"Biebie Access is not running; the network is tried directly",
+			"Biebie Access is not running on this machine, so the customer network could not be checked or brought up for you.",
 		)
 	}
 
 	status, err := m.access.Status(ctx, cluster.Access.ProfileID)
 	if err != nil {
-		probes.fail(domain.LayerAccess, err.Error(), 0)
-		probes.skipRest(domain.LayerTCP, domain.LayerTLS, domain.LayerKubernetes)
-		return probes.diagnosis(
-			domain.FailureAccessDown,
-			"Customer network access could not be confirmed.",
-			err.Error(),
-			cluster.Access.ProfileID,
-		)
+		return unconfirmed(err.Error(), "Customer network access could not be confirmed: "+err.Error()+".")
 	}
 
 	if !status.Connected {
-		probes.fail(domain.LayerAccess, "profile "+cluster.Access.ProfileID+" is "+string(status.State), 0)
-		probes.skipRest(domain.LayerTCP, domain.LayerTLS, domain.LayerKubernetes)
-		return probes.diagnosis(
-			domain.FailureAccessDown,
-			"Customer network access is required.",
+		return unconfirmed(
+			"profile "+cluster.Access.ProfileID+" is "+string(status.State),
 			strings.TrimSpace(status.Detail+" Connect this customer in Biebie Access, and Biebie Kube will retry on its own."),
-			cluster.Access.ProfileID,
 		)
 	}
 
@@ -443,7 +454,7 @@ func (m *Manager) checkAccess(ctx context.Context, cluster domain.Cluster, probe
 		detail = "connected as " + status.AssignedIP
 	}
 	probes.pass(domain.LayerAccess, detail, 0)
-	return nil
+	return accessCheck{required: true, confirmed: true}
 }
 
 // Disconnect closes a session and everything hanging off it.

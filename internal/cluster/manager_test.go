@@ -3,8 +3,10 @@ package cluster
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -72,6 +74,22 @@ func newRepo(t *testing.T) *Repository {
 	return NewRepository(st)
 }
 
+// unreachable is a port nothing listens on. The refusal comes back at once,
+// which keeps tests about unreachable clusters off the TCP probe's timeout.
+const unreachable = "https://127.0.0.1:1"
+
+// listening starts a socket that accepts and says nothing, so the TCP probe
+// passes and the connection carries on to the layers above it.
+func listening(t *testing.T) string {
+	t.Helper()
+	socket, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = socket.Close() })
+	return "https://" + socket.Addr().String()
+}
+
 func addCluster(t *testing.T, repo *Repository, in domain.ClusterInput, server string) domain.Cluster {
 	t.Helper()
 	cluster, err := repo.Create(in, server)
@@ -92,7 +110,7 @@ func TestClusterWaitsForAccessInsteadOfFailing(t *testing.T) {
 		ContextName:     "default",
 		RequiresAccess:  true,
 		AccessProfileID: "smoi-vpn",
-	}, "https://172.16.20.65:6443")
+	}, unreachable)
 
 	access := &stubAccess{installed: true, status: bctx.AccessStatus{
 		ProfileID: "smoi-vpn", State: bctx.AccessDisconnected,
@@ -121,7 +139,7 @@ func TestMissingAccessApplicationIsExplainedNotCrashed(t *testing.T) {
 		Name: "RKE2 Production", CustomerID: "smoi",
 		KubeconfigRef: "kubeconfig_1", ContextName: "default",
 		RequiresAccess: true, AccessProfileID: "smoi-vpn",
-	}, "https://172.16.20.65:6443")
+	}, unreachable)
 
 	manager := NewManager(repo, stubResolver{}, kube.NewFactory("test"), &stubAccess{installed: false}, &recorder{})
 
@@ -134,6 +152,67 @@ func TestMissingAccessApplicationIsExplainedNotCrashed(t *testing.T) {
 	}
 	if session.Diagnosis.Kind != domain.FailureAccessDown {
 		t.Fatalf("kind = %q", session.Diagnosis.Kind)
+	}
+}
+
+// Biebie Access is one way onto a customer network, not the only one. An
+// engineer on site, on the customer's own VPN client, or in front of an
+// endpoint that turned out to be public must still be able to open the cluster
+// on a machine where Biebie Access was never installed.
+func TestClusterOpensOverANetworkBiebieAccessNeverBroughtUp(t *testing.T) {
+	repo := newRepo(t)
+	cluster := addCluster(t, repo, domain.ClusterInput{
+		Name: "RKE2 Production", CustomerID: "smoi",
+		KubeconfigRef: "kubeconfig_1", ContextName: "default",
+		RequiresAccess: true, AccessProfileID: "smoi-vpn",
+	}, listening(t))
+
+	manager := NewManager(repo, stubResolver{path: "/nonexistent"}, kube.NewFactory("test"), &stubAccess{installed: false}, &recorder{})
+
+	session, err := manager.Connect(context.Background(), cluster.ID)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if session.State == domain.ClusterWaitingAccess {
+		t.Fatal("a reachable cluster must not wait on an application that is not installed")
+	}
+
+	var tcp *domain.Probe
+	for i, probe := range session.Diagnosis.Probes {
+		if probe.Layer == domain.LayerAccess && probe.Result != domain.ProbeSkipped {
+			t.Fatalf("access probe = %q; a question that could not be asked is untested, not failed", probe.Result)
+		}
+		if probe.Layer == domain.LayerTCP {
+			tcp = &session.Diagnosis.Probes[i]
+		}
+	}
+	if tcp == nil || tcp.Result != domain.ProbePassed {
+		t.Fatalf("the network must be dialled rather than assumed down: %+v", session.Diagnosis.Probes)
+	}
+}
+
+// The offer of Biebie Access is still worth making once the network has been
+// tried and stayed silent, and the profile has to travel with it or the UI has
+// no button to show.
+func TestSilentNetworkWithoutBiebieAccessStillOffersIt(t *testing.T) {
+	repo := newRepo(t)
+	cluster := addCluster(t, repo, domain.ClusterInput{
+		Name: "RKE2 Production", CustomerID: "smoi",
+		KubeconfigRef: "kubeconfig_1", ContextName: "default",
+		RequiresAccess: true, AccessProfileID: "smoi-vpn",
+	}, unreachable)
+
+	manager := NewManager(repo, stubResolver{path: "/nonexistent"}, kube.NewFactory("test"), &stubAccess{installed: false}, &recorder{})
+
+	session, _ := manager.Connect(context.Background(), cluster.ID)
+	if session.Diagnosis.Kind != domain.FailureAccessDown {
+		t.Fatalf("kind = %q, want access_down", session.Diagnosis.Kind)
+	}
+	if session.Diagnosis.AccessProfileID != "smoi-vpn" {
+		t.Fatalf("the diagnosis must name the profile the UI should offer: %+v", session.Diagnosis)
+	}
+	if !strings.Contains(session.Diagnosis.Detail, "Biebie Access is not running") {
+		t.Fatalf("detail = %q, want the reason the network could not be confirmed", session.Diagnosis.Detail)
 	}
 }
 
@@ -408,7 +487,7 @@ func TestWaitingClustersAreRetriedUnderTheAdoptedIdentifier(t *testing.T) {
 		Name: "RKE2 Production", CustomerID: "smoi",
 		KubeconfigRef: "kubeconfig_1", ContextName: "default",
 		RequiresAccess: true, AccessProfileID: "vpn-cat",
-	}, "https://172.16.20.65:6443")
+	}, unreachable)
 
 	access := &stubAccess{installed: true, status: bctx.AccessStatus{
 		ProfileID: "vpn-cat", State: bctx.AccessDisconnected,

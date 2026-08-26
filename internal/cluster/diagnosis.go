@@ -135,6 +135,17 @@ func (b *builder) fail(layer domain.Layer, detail string, elapsed time.Duration)
 	})
 }
 
+// skip marks one layer as untested and says why, for a step that was passed
+// over rather than attempted — a question Biebie Kube could not ask reads as
+// skipped, not as an answer of "no".
+func (b *builder) skip(layer domain.Layer, detail string) {
+	b.probes = append(b.probes, domain.Probe{
+		Layer:  layer,
+		Result: domain.ProbeSkipped,
+		Detail: detail,
+	})
+}
+
 // skipRest marks the layers that were never tested.
 //
 // Reporting an untested layer as failed would suggest several problems where

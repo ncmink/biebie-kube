@@ -1,27 +1,13 @@
 {
   "fill" : {
-    "automatic-gradient" : "extended-gray:1.00000,1.00000"
+    "automatic-gradient" : "extended-srgb:0.89412,0.86275,0.98431,1.00000"
   },
   "groups" : [
     {
       "layers" : [
         {
-          "fill-specializations" : [
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.92143,0.92145,0.92144,1.00000"
-              }
-            },
-            {
-              "appearance" : "tinted",
-              "value" : {
-                "solid" : "srgb:0.83742,0.83744,0.83743,1.00000"
-              }
-            }
-          ],
-          "image-name" : "wails_icon_vector.svg",
-          "name" : "wails_icon_vector",
+          "image-name" : "logo-bb-kube.png",
+          "name" : "logo-bb-kube",
           "position" : {
             "scale" : 0.85,
             "translation-in-points" : [
@@ -35,11 +21,7 @@
         "kind" : "neutral",
         "opacity" : 0.5
       },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
-      }
+      "specular" : true
     }
   ],
   "supported-platforms" : {

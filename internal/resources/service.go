@@ -3,120 +3,309 @@ package resources
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
 )
 
-// maxRows bounds one table render.
+// coldBudget bounds the first read of a resource type, before its watch has
+// filled a cache.
 //
-// A cluster with fifty thousand pods must not stall the renderer or the IPC
-// bridge. The table says it was truncated rather than silently showing part of
-// the truth.
-const maxRows = 2000
+// One request rather than a paginated crawl, because this is the read the user
+// is waiting on. A cluster with more objects than this of one kind gets a page
+// marked as still loading, and the watch corrects the counts within moments.
+const coldBudget = 5000
+
+// maxTables bounds how many rendered tables are kept per application.
+//
+// A table holds a rendered row for every object of its kind, which is worth
+// keeping for the tab in front of the user and the few behind it, and not
+// worth keeping for every kind they have ever clicked.
+const maxTables = 6
+
+// EventRows carries a patch to the table the frontend is holding.
+const EventRows = "cluster:rows"
+
+// Emitter publishes events to the UI. The service depends on this rather than
+// on the Wails runtime, so rendering can be tested headlessly.
+type Emitter interface {
+	Emit(event string, data any)
+}
+
+// RowsChanged is what changed about the window the frontend holds.
+//
+// It is a patch rather than a table: a rollout in a large namespace changes a
+// handful of rows, and re-sending every row three times a second is what makes
+// a big cluster feel broken.
+type RowsChanged struct {
+	ClusterID string      `json:"clusterId"`
+	Kind      domain.Kind `json:"kind"`
+	Namespace string      `json:"namespace"`
+
+	Upserts []domain.ResourceRow `json:"upserts,omitempty"`
+	Removed []string             `json:"removed,omitempty"`
+	Order   []string             `json:"order,omitempty"`
+
+	Total   int  `json:"total"`
+	Matched int  `json:"matched"`
+	Loading bool `json:"loading"`
+
+	// Token is the query this patch was computed against, so a table that has
+	// since been rebuilt with a different filter or order can ignore it.
+	Token string `json:"token"`
+}
 
 // Service reads and mutates Kubernetes objects for the UI.
 type Service struct {
 	clusters *cluster.Manager
+	emitter  Emitter
+
+	mu     sync.Mutex
+	tables map[view]*table
+
+	// touched is when each view was last asked for, and belongs to the
+	// registry rather than to the table: eviction is a decision about the set
+	// of tables, taken under the lock that owns that set.
+	touched map[view]time.Time
+
+	usage map[string]*usageState
 }
 
 // NewService wires the service to live cluster sessions.
-func NewService(clusters *cluster.Manager) *Service {
-	return &Service{clusters: clusters}
+func NewService(clusters *cluster.Manager, emitter Emitter) *Service {
+	return &Service{
+		clusters: clusters,
+		emitter:  emitter,
+		tables:   make(map[view]*table),
+		touched:  make(map[view]time.Time),
+		usage:    make(map[string]*usageState),
+	}
 }
 
-// List renders a resource table.
+// List answers one table query.
 //
-// It prefers a warm informer cache and falls back to a direct API list, so the
-// first view of a resource type appears immediately while the watch is still
-// syncing, and later views cost nothing.
-func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, namespace string) (domain.ResourcePage, error) {
+// The filter, the order and the window are all applied here, where the whole
+// set is, rather than in the renderer. A filter applied to a window would only
+// ever search the rows that happened to be sent, and would report a pod that
+// exists as missing — which is the difference between a slow table and a table
+// that cannot be trusted.
+func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, query domain.ListQuery) (domain.ResourcePage, error) {
 	info, ok := s.clusters.LookupKind(clusterID, kind)
 	if !ok {
 		return domain.ResourcePage{}, fmt.Errorf("unknown resource type %q", kind)
 	}
-	client, err := s.clusters.Client(clusterID)
-	if err != nil {
-		return domain.ResourcePage{}, err
-	}
 	if !info.Namespaced {
-		namespace = domain.AllNamespaces
+		query.Namespace = domain.AllNamespaces
 	}
 
-	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
+	key := view{clusterID: clusterID, kind: kind, namespace: query.Namespace}
 
-	objects, err := s.read(ctx, clusterID, client, gvr, namespace)
+	// An append is answered from the rows already rendered. Re-reading the
+	// cluster to hand out the next five hundred of an order that has not
+	// changed would undo the point of holding them.
+	if query.Offset > 0 {
+		if existing := s.table(key); existing != nil {
+			return existing.page(query), nil
+		}
+	}
+
+	objects, loading, err := s.read(ctx, clusterID, info, query.Namespace, true)
 	if err != nil {
 		return domain.ResourcePage{}, err
 	}
 
-	page := domain.ResourcePage{
-		Kind:       kind,
-		Columns:    info.Columns,
-		Namespaced: info.Namespaced,
-		Rows:       make([]domain.ResourceRow, 0, len(objects)),
+	rendered := s.ensureTable(key, info)
+	if kind == domain.KindPod {
+		// Nothing to patch: the rows are about to be rendered again anyway,
+		// and the page that follows carries the usage with them.
+		rendered.setUsage(s.usageFor(ctx, clusterID, true))
 	}
-	for _, obj := range objects {
-		page.Rows = append(page.Rows, Row(info, obj))
-	}
-
-	// Newest first: an engineer opening a pod list is almost always looking
-	// for what just changed.
-	sort.SliceStable(page.Rows, func(i, j int) bool {
-		if page.Rows[i].CreatedAt.Equal(page.Rows[j].CreatedAt) {
-			return page.Rows[i].Name < page.Rows[j].Name
-		}
-		return page.Rows[i].CreatedAt.After(page.Rows[j].CreatedAt)
-	})
-
-	if len(page.Rows) > maxRows {
-		page.Rows = page.Rows[:maxRows]
-		page.Truncated = true
-	}
-	return page, nil
+	rendered.replace(objects, loading)
+	return rendered.page(query), nil
 }
 
-// read returns objects from the informer cache when it is warm, and from the
-// API server otherwise. Either way a watch is started, so the next change
-// arrives as an event instead of a poll.
+// Forget drops what was rendered for a cluster, when its session ends or is
+// replaced. Rows rendered from a cache that no longer exists would be patched
+// against nothing.
+func (s *Service) Forget(clusterID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for key := range s.tables {
+		if key.clusterID == clusterID {
+			delete(s.tables, key)
+			delete(s.touched, key)
+		}
+	}
+	delete(s.usage, clusterID)
+}
+
+// OnResourceChange turns a watch notification into a patch for every table it
+// affects.
+//
+// This is the hot path of a busy cluster: it re-renders the objects that
+// changed, compares the result with the window the frontend was given, and
+// stays silent when nothing the user can see is different.
+func (s *Service) OnResourceChange(clusterID string, change kube.Change) {
+	affected := s.affected(clusterID, change)
+
+	for key := range affected {
+		// Usage ages out on metrics-server's schedule rather than the
+		// cluster's, so a busy pod table takes the chance to check whether it
+		// is due. The read happens in the background and patches the cells it
+		// changes when it lands.
+		if key.kind == domain.KindPod {
+			s.usageFor(context.Background(), clusterID, false)
+			break
+		}
+	}
+
+	for key, rendered := range affected {
+		touched, reordered, err := s.refresh(clusterID, key, rendered, change)
+		if err != nil {
+			continue
+		}
+		delta, worth := rendered.patch(touched, reordered)
+		if !worth {
+			continue
+		}
+		s.emit(EventRows, RowsChanged{
+			ClusterID: clusterID,
+			Kind:      key.kind,
+			Namespace: key.namespace,
+			Upserts:   delta.Upserts,
+			Removed:   delta.Removed,
+			Order:     delta.Order,
+			Total:     delta.Total,
+			Matched:   delta.Matched,
+			Loading:   delta.Loading,
+			Token:     delta.Token,
+		})
+	}
+}
+
+// affected finds the tables a watch notification speaks for.
+//
+// A watch over every namespace feeds any view of its kind; a watch over one
+// feeds only the views showing it.
+func (s *Service) affected(clusterID string, change kube.Change) map[view]*table {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := make(map[view]*table)
+	for key, rendered := range s.tables {
+		if key.clusterID != clusterID {
+			continue
+		}
+		info := rendered.info
+		if kube.GVRFor(info.Group, info.Version, info.Resource) != change.GVR {
+			continue
+		}
+		if change.Namespace != domain.AllNamespaces && change.Namespace != key.namespace {
+			continue
+		}
+		out[key] = rendered
+	}
+	return out
+}
+
+// refresh brings one table up to date with the cache behind it, reporting the
+// keys it touched and whether the order can still stand.
+func (s *Service) refresh(clusterID string, key view, rendered *table, change kube.Change) ([]string, bool, error) {
+	hub, err := s.clusters.Hub(clusterID)
+	if err != nil {
+		return nil, false, err
+	}
+	info := rendered.info
+	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
+
+	watch := hub.Existing(gvr, key.namespace)
+	if watch == nil {
+		return nil, false, fmt.Errorf("no warm cache for %s", info.Resource)
+	}
+
+	// A resync, or a burst too large to track object by object, is cheaper to
+	// answer by re-rendering the cache than by naming every key in it.
+	if change.Full {
+		cached, err := watch.List(key.namespace)
+		if err != nil {
+			return nil, false, err
+		}
+		objects := toUnstructured(cached)
+		rendered.replace(objects, false)
+		return keysIn(objects), true, nil
+	}
+
+	changed := make([]*unstructured.Unstructured, 0, len(change.Keys))
+	removed := make([]string, 0, len(change.Keys))
+	for _, objectKey := range change.Keys {
+		object, found := watch.Get(objectKey)
+		if !found {
+			removed = append(removed, objectKey)
+			continue
+		}
+		if typed, ok := object.(*unstructured.Unstructured); ok {
+			changed = append(changed, typed)
+		}
+	}
+	touched, reordered := rendered.apply(changed, removed)
+	return touched, reordered, nil
+}
+
+// read returns objects from the informer cache when it is warm, and from one
+// bounded API request otherwise.
+//
+// subscribe starts a watch on the way past, which is what a table wants: its
+// next update should arrive as an event rather than a poll. A search does not
+// want it — scanning eleven kinds would start eleven informers and evict the
+// cache belonging to the table the engineer is actually looking at.
+//
+// The second return value reports that more objects exist than were read, so
+// the page can say the counts are still settling instead of presenting a
+// prefix as the whole list.
 func (s *Service) read(
 	ctx context.Context,
 	clusterID string,
-	client *kube.ClusterClient,
-	gvr schema.GroupVersionResource,
+	info domain.KindInfo,
 	namespace string,
-) ([]*unstructured.Unstructured, error) {
-	hub, hubErr := s.clusters.Hub(clusterID)
+	subscribe bool,
+) ([]*unstructured.Unstructured, bool, error) {
+	client, err := s.clusters.Client(clusterID)
+	if err != nil {
+		return nil, false, err
+	}
+	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
 
+	hub, hubErr := s.clusters.Hub(clusterID)
 	if hubErr == nil {
 		if watch := hub.Existing(gvr, namespace); watch != nil {
 			cached, err := watch.List(namespace)
 			if err == nil {
-				return toUnstructured(cached), nil
+				return toUnstructured(cached), false, nil
 			}
 		}
 	}
 
+	options := metav1.ListOptions{Limit: coldBudget}
 	var list *unstructured.UnstructuredList
-	var err error
 	if namespace == domain.AllNamespaces {
-		list, err = client.Dynamic.Resource(gvr).List(ctx, metav1.ListOptions{})
+		list, err = client.Dynamic.Resource(gvr).List(ctx, options)
 	} else {
-		list, err = client.Dynamic.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+		list, err = client.Dynamic.Resource(gvr).Namespace(namespace).List(ctx, options)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("list %s: %w", gvr.Resource, err)
+		return nil, false, fmt.Errorf("list %s: %w", gvr.Resource, err)
 	}
 
-	if hubErr == nil {
+	if subscribe && hubErr == nil {
 		hub.Ensure(gvr, namespace)
 	}
 
@@ -124,7 +313,7 @@ func (s *Service) read(
 	for i := range list.Items {
 		out = append(out, &list.Items[i])
 	}
-	return out, nil
+	return out, list.GetContinue() != "", nil
 }
 
 // Get returns one object in full, for the detail and YAML views.
@@ -169,11 +358,12 @@ func (s *Service) Delete(ctx context.Context, clusterID string, ref domain.Resou
 
 // Search looks for a name fragment across the kinds engineers actually search.
 //
-// Each kind is read from the cache when warm; a cluster-wide search is
-// deliberately limited to a handful of kinds so it stays instant.
+// Names are matched on the objects themselves and only the hits are rendered,
+// so searching a cluster with fifty thousand pods costs a scan of their
+// metadata rather than a rendered table per kind.
 func (s *Service) Search(ctx context.Context, clusterID, query, namespace string) ([]domain.SearchHit, error) {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if len(query) < 2 {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if len(needle) < 2 {
 		return nil, nil
 	}
 
@@ -183,16 +373,21 @@ func (s *Service) Search(ctx context.Context, clusterID, query, namespace string
 		if !ok {
 			continue
 		}
-		page, err := s.List(ctx, clusterID, kind, namespace)
+		scope := namespace
+		if !info.Namespaced {
+			scope = domain.AllNamespaces
+		}
+		objects, _, err := s.read(ctx, clusterID, info, scope, false)
 		if err != nil {
 			// A kind this account cannot list is skipped rather than failing
 			// the whole search.
 			continue
 		}
-		for _, row := range page.Rows {
-			if !strings.Contains(strings.ToLower(row.Name), query) {
+		for _, object := range objects {
+			if !strings.Contains(strings.ToLower(object.GetName()), needle) {
 				continue
 			}
+			row := Row(info, object)
 			hits = append(hits, domain.SearchHit{
 				Kind:      kind,
 				KindTitle: info.Title,
@@ -208,22 +403,57 @@ func (s *Service) Search(ctx context.Context, clusterID, query, namespace string
 	return hits, nil
 }
 
-// Watch starts a watch for a table the user is looking at, so changes arrive
-// as events rather than by polling.
-func (s *Service) Watch(clusterID string, kind domain.Kind, namespace string) error {
-	info, ok := s.clusters.LookupKind(clusterID, kind)
+// table returns a rendered table, or nil.
+func (s *Service) table(key view) *table {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rendered, ok := s.tables[key]
 	if !ok {
-		return fmt.Errorf("unknown resource type %q", kind)
+		return nil
 	}
-	hub, err := s.clusters.Hub(clusterID)
-	if err != nil {
-		return err
+	s.touched[key] = time.Now()
+	return rendered
+}
+
+// ensureTable returns the table for a view, creating it and evicting the least
+// recently used one when the budget is full.
+func (s *Service) ensureTable(key view, info domain.KindInfo) *table {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.touched[key] = time.Now()
+
+	if existing, ok := s.tables[key]; ok {
+		// A kind's columns come from the cluster for a custom resource, so a
+		// reconnect can change them under a view that is still open.
+		existing.info = info
+		return existing
 	}
-	if !info.Namespaced {
-		namespace = domain.AllNamespaces
+
+	for len(s.tables) >= maxTables {
+		oldest, found := view{}, false
+		for candidate := range s.tables {
+			if !found || s.touched[candidate].Before(s.touched[oldest]) {
+				oldest, found = candidate, true
+			}
+		}
+		if !found {
+			break
+		}
+		delete(s.tables, oldest)
+		delete(s.touched, oldest)
 	}
-	hub.Ensure(kube.GVRFor(info.Group, info.Version, info.Resource), namespace)
-	return nil
+
+	created := newTable(info)
+	s.tables[key] = created
+	return created
+}
+
+func (s *Service) emit(event string, data any) {
+	if s.emitter != nil {
+		s.emitter.Emit(event, data)
+	}
 }
 
 func toUnstructured(objects []runtime.Object) []*unstructured.Unstructured {
@@ -234,4 +464,12 @@ func toUnstructured(objects []runtime.Object) []*unstructured.Unstructured {
 		}
 	}
 	return out
+}
+
+func keysIn(objects []*unstructured.Unstructured) []string {
+	keys := make([]string, len(objects))
+	for i, object := range objects {
+		keys[i] = RowKey(object.GetNamespace(), object.GetName())
+	}
+	return keys
 }

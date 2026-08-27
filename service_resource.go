@@ -11,20 +11,17 @@ type ResourceService struct{ core *Core }
 
 func (s *ResourceService) ServiceName() string { return "ResourceService" }
 
-// ListResources renders a resource table.
+// ListResources answers one table query: a filtered, sorted window of a kind.
+//
+// Listing starts the watch behind it, so the frontend does not ask for updates
+// separately — the first read of a table is also the subscription to it.
 //
 // kind crosses the binding as a plain string rather than domain.Kind, because
 // the generated TypeScript cannot express a Go string alias and would emit a
 // reference to a type it never declares.
-func (s *ResourceService) ListResources(ctx context.Context, clusterID, kind, namespace string) (domain.ResourcePage, error) {
-	page, err := s.core.resources.List(ctx, clusterID, domain.Kind(kind), namespace)
+func (s *ResourceService) ListResources(ctx context.Context, clusterID, kind string, query domain.ListQuery) (domain.ResourcePage, error) {
+	page, err := s.core.resources.List(ctx, clusterID, domain.Kind(kind), query)
 	return page, describe(err)
-}
-
-// WatchResources starts a watch for a table the user is looking at, so updates
-// arrive as events instead of the frontend polling.
-func (s *ResourceService) WatchResources(clusterID, kind, namespace string) error {
-	return describe(s.core.resources.Watch(clusterID, domain.Kind(kind), namespace))
 }
 
 // CountResources reports which kinds have objects in the current namespace,

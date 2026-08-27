@@ -118,7 +118,12 @@ func (s *ClusterService) SetClusterArchived(clusterID string, archived bool) (Cl
 }
 
 // ConnectCluster runs the connection sequence and returns the resulting state.
+//
+// A reconnect builds new clients and new watches, so rows rendered from the
+// previous session are dropped rather than patched against a cache that no
+// longer exists.
 func (s *ClusterService) ConnectCluster(ctx context.Context, clusterID string) (domain.Session, error) {
+	s.core.resources.Forget(clusterID)
 	session, err := s.core.clusters.Connect(ctx, clusterID)
 	return session, describe(err)
 }
@@ -126,6 +131,7 @@ func (s *ClusterService) ConnectCluster(ctx context.Context, clusterID string) (
 // DisconnectCluster ends a session and everything hanging off it.
 func (s *ClusterService) DisconnectCluster(clusterID string) domain.Session {
 	s.core.forwards.StopCluster(clusterID)
+	s.core.resources.Forget(clusterID)
 	return s.core.clusters.Disconnect(clusterID)
 }
 

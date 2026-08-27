@@ -144,13 +144,31 @@ watch(activeKind, (kind) => {
 onMounted(refreshCounts)
 watch([() => props.clusterId, namespace, connected], refreshCounts)
 
+/**
+ * countsDelay throttles the recount a busy cluster would otherwise demand.
+ *
+ * Counting asks every kind in the sidebar whether it has anything, and a
+ * rollout reports a change several times a second. The counts only decide
+ * which entries are faded, so they are worth a moment's lag and not worth
+ * dozens of requests per second.
+ */
+const countsDelay = 3000
+let countsTimer: ReturnType<typeof setTimeout> | undefined
+
 let stopWatch: (() => void) | undefined
 onMounted(() => {
   stopWatch = on(events.resources, (event) => {
-    if (event.clusterId === props.clusterId) void refreshCounts()
+    if (event.clusterId !== props.clusterId || countsTimer) return
+    countsTimer = setTimeout(() => {
+      countsTimer = undefined
+      void refreshCounts()
+    }, countsDelay)
   })
 })
-onUnmounted(() => stopWatch?.())
+onUnmounted(() => {
+  stopWatch?.()
+  clearTimeout(countsTimer)
+})
 </script>
 
 <template>

@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	bctx "github.com/ncmink/biebie-protocol/context"
 
 	"biebie-kube/internal/domain"
@@ -47,13 +45,24 @@ const (
 	EventResourcesChanged = "cluster:resources"
 )
 
-// ResourceChange tells the frontend which table went stale.
+// ResourceChange tells the frontend which resource type went stale.
+//
+// It carries no rows. The rendering layer turns the same notification into a
+// patch for the table in view; this event is what the parts of the UI that
+// only count objects — the sidebar's empty-state fading — listen to.
 type ResourceChange struct {
 	ClusterID string `json:"clusterId"`
 	Resource  string `json:"resource"`
 	Group     string `json:"group"`
 	Namespace string `json:"namespace"`
 }
+
+// ResourceSink receives a cluster's watch notifications.
+//
+// The manager knows when a watch fired. It does not know what a table looks
+// like, so the rendering layer registers here rather than the manager reaching
+// into it.
+type ResourceSink func(clusterID string, change kube.Change)
 
 // session is one cluster's live state.
 type session struct {
@@ -97,6 +106,8 @@ type Manager struct {
 	// connecting guards against two connect attempts racing for one cluster,
 	// which double-clicking Connect would otherwise cause.
 	connecting map[string]struct{}
+
+	sink ResourceSink
 }
 
 // NewManager wires the lifecycle.
@@ -116,6 +127,13 @@ func NewManager(
 		sessions:   make(map[string]*session),
 		connecting: make(map[string]struct{}),
 	}
+}
+
+// OnResources registers the sink for watch notifications, once at startup.
+func (m *Manager) OnResources(sink ResourceSink) {
+	m.mu.Lock()
+	m.sink = sink
+	m.mu.Unlock()
 }
 
 // Repository exposes cluster storage for the binding layer's CRUD calls,
@@ -373,13 +391,8 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 		namespace = defaultNamespace(namespaces)
 	}
 
-	hub := kube.NewWatchHub(client.StreamDynamic, func(gvr schema.GroupVersionResource, ns string) {
-		m.emit(EventResourcesChanged, ResourceChange{
-			ClusterID: clusterID,
-			Group:     gvr.Group,
-			Resource:  gvr.Resource,
-			Namespace: ns,
-		})
+	hub := kube.NewWatchHub(client.StreamDynamic, func(change kube.Change) {
+		m.notifyResources(clusterID, change)
 	})
 
 	now := time.Now()
@@ -574,6 +587,27 @@ func (m *Manager) transition(cluster domain.Cluster, state domain.ClusterState, 
 	m.mu.Unlock()
 
 	m.emit(EventSessionChanged, view)
+}
+
+// notifyResources hands a watch notification to the rendering layer and tells
+// the UI which resource type moved.
+//
+// Both happen: the sink patches the table in view, and the coarse event is
+// what the sidebar's counts key off, which no patch would tell them.
+func (m *Manager) notifyResources(clusterID string, change kube.Change) {
+	m.mu.RLock()
+	sink := m.sink
+	m.mu.RUnlock()
+
+	if sink != nil {
+		sink(clusterID, change)
+	}
+	m.emit(EventResourcesChanged, ResourceChange{
+		ClusterID: clusterID,
+		Group:     change.GVR.Group,
+		Resource:  change.GVR.Resource,
+		Namespace: change.Namespace,
+	})
 }
 
 func (m *Manager) emit(event string, data any) {

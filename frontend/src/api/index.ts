@@ -65,7 +65,6 @@ export const api = {
   resourceCatalogue: list(ClusterService.ResourceCatalogue),
 
   listResources: ResourceService.ListResources,
-  watchResources: ResourceService.WatchResources,
   countResources: list(ResourceService.CountResources),
   inspectResource: ResourceService.InspectResource,
   getYAML: ResourceService.GetResourceYAML,
@@ -125,6 +124,7 @@ export const api = {
 export const events = {
   session: 'cluster:session',
   resources: 'cluster:resources',
+  rows: 'cluster:rows',
   logChunk: 'logs:chunk',
   terminalChunk: 'terminal:chunk',
   portForwards: 'portforward:changed',

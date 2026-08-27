@@ -105,7 +105,12 @@ func NewCore() (*Core, error) {
 		events,
 	)
 
-	core.resources = resources.NewService(core.clusters)
+	core.resources = resources.NewService(core.clusters, events)
+
+	// The manager reports that a watch fired; the resource service is what
+	// knows which table that changes and what to send for it.
+	core.clusters.OnResources(core.resources.OnResourceChange)
+
 	core.manifests = manifest.NewService(core.clusters, core.resources)
 	core.logs = logs.NewService(core.clusters, events)
 	core.terminals = terminal.NewService(core.clusters, events)

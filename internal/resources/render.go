@@ -44,6 +44,18 @@ var renderers = map[domain.Kind]renderer{
 	domain.KindCustomResourceDefinition: renderCRD,
 }
 
+// RowKey is an object's identity within its kind.
+//
+// It is deliberately the same string client-go's cache uses as a key, so a
+// watch notification naming an object that changed lands on the row rendered
+// from it without a translation step in between.
+func RowKey(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "/" + name
+}
+
 // Row renders one object for a table.
 //
 // The kind's full description is taken rather than its name because a custom
@@ -51,6 +63,7 @@ var renderers = map[domain.Kind]renderer{
 // the definition the cluster served.
 func Row(info domain.KindInfo, obj *unstructured.Unstructured) domain.ResourceRow {
 	row := domain.ResourceRow{
+		Key:       RowKey(obj.GetNamespace(), obj.GetName()),
 		UID:       string(obj.GetUID()),
 		Name:      obj.GetName(),
 		Namespace: obj.GetNamespace(),

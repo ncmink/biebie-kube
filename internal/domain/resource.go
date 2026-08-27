@@ -150,6 +150,12 @@ type ResourceRef struct {
 // single virtualized table renders every kind — including custom resources,
 // whose columns are not known at compile time.
 type ResourceRow struct {
+	// Key is the object's identity within its kind: "namespace/name", or the
+	// bare name for a cluster-scoped kind. Rows are ordered and patched by it
+	// rather than by UID, because a UID changes when an object is recreated
+	// under the same name and the table would lose the row the user is on.
+	Key string `json:"key"`
+
 	UID       string `json:"uid"`
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
@@ -162,6 +168,70 @@ type ResourceRow struct {
 	Fields map[string]string `json:"fields,omitempty"`
 }
 
+// Sort keys the table understands beyond a kind's own column keys. Anything
+// else is read from a row's Fields, so a custom resource sorts by its own
+// printer columns without a compiled-in case for it.
+const (
+	SortKeyCreated   = "createdAt"
+	SortKeyName      = "name"
+	SortKeyNamespace = "namespace"
+	SortKeyStatus    = "status"
+)
+
+// ListQuery is what a table asks for: which slice of which order.
+//
+// Filtering, sorting and windowing all happen where the whole truth is, which
+// is here rather than in the renderer. A filter applied to a window would only
+// ever search what happened to be sent, and would report a resource that
+// exists as missing.
+type ListQuery struct {
+	Namespace string `json:"namespace"`
+
+	// Filter matches a name fragment, case-insensitively.
+	Filter string `json:"filter,omitempty"`
+
+	// SortKey is empty for the default order, which is newest first: an
+	// engineer opening a list is almost always looking for what just changed.
+	SortKey  string `json:"sortKey,omitempty"`
+	SortDesc bool   `json:"sortDesc,omitempty"`
+
+	Offset int `json:"offset,omitempty"`
+	Limit  int `json:"limit,omitempty"`
+
+	// Token identifies the table the frontend is building, and comes back on
+	// every patch computed for it. A patch is described in terms of the window
+	// its query produced, so one still in flight when the filter changes would
+	// otherwise be applied to a table it does not describe.
+	Token string `json:"token,omitempty"`
+}
+
+// Window bounds for one table request. The frontend renders a window of rows
+// and appends as the user scrolls, so a page is large enough to scroll through
+// without a round trip and small enough to cross the binding in one piece.
+const (
+	DefaultListLimit = 500
+	MaxListLimit     = 2000
+)
+
+// Normalise fills in the defaults and clamps the window, so every caller gets
+// the same order and no caller can ask for a page too large to send.
+func (q ListQuery) Normalise() ListQuery {
+	if q.SortKey == "" {
+		q.SortKey = SortKeyCreated
+		q.SortDesc = true
+	}
+	if q.Limit <= 0 {
+		q.Limit = DefaultListLimit
+	}
+	if q.Limit > MaxListLimit {
+		q.Limit = MaxListLimit
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	return q
+}
+
 // ResourcePage is a rendered table: the rows plus the columns they fill.
 type ResourcePage struct {
 	Kind    Kind          `json:"kind"`
@@ -171,9 +241,18 @@ type ResourcePage struct {
 	// Namespaced tells the UI whether to show the namespace column.
 	Namespaced bool `json:"namespaced"`
 
-	// Truncated is set when a very large cluster returned more objects than
-	// the table will render at once.
-	Truncated bool `json:"truncated,omitempty"`
+	// Total is how many objects of this kind the view holds before the filter,
+	// Matched how many the filter left, and Rows the window starting at
+	// Offset. Reporting all three is what lets the table say "40 of 12000"
+	// instead of quietly showing a prefix and calling it the list.
+	Total   int `json:"total"`
+	Matched int `json:"matched"`
+	Offset  int `json:"offset"`
+
+	// Loading marks a page served from a first API request while the watch is
+	// still filling its cache. The counts are a floor, not the truth, and the
+	// watch will correct them within moments.
+	Loading bool `json:"loading,omitempty"`
 }
 
 // ContainerInfo describes one container of a pod, for the container selector

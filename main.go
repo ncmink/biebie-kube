@@ -17,6 +17,7 @@ import (
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/logs"
 	"biebie-kube/internal/portforward"
+	"biebie-kube/internal/resources"
 	"biebie-kube/internal/shellenv"
 	"biebie-kube/internal/terminal"
 )
@@ -40,6 +41,7 @@ func init() {
 
 	application.RegisterEvent[domain.Session](cluster.EventSessionChanged)
 	application.RegisterEvent[cluster.ResourceChange](cluster.EventResourcesChanged)
+	application.RegisterEvent[resources.RowsChanged](resources.EventRows)
 	application.RegisterEvent[domain.LogChunk](logs.EventChunk)
 	application.RegisterEvent[domain.TerminalChunk](terminal.EventChunk)
 	application.RegisterEvent[[]domain.PortForwardSession](portforward.EventChanged)

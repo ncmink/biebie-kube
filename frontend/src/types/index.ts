@@ -40,6 +40,7 @@ export type {
   EventRow,
   KindInfo,
   KindPresence,
+  ListQuery,
   LogChunk,
   LogOptions,
   PodDetail,
@@ -59,6 +60,8 @@ export type {
 } from '@bindings/biebie-kube/internal/domain/models'
 
 export type { ResourceChange } from '@bindings/biebie-kube/internal/cluster/models'
+
+export type { RowsChanged } from '@bindings/biebie-kube/internal/resources/models'
 
 export type {
   ContextEntry as KubeconfigContext,

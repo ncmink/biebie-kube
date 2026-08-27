@@ -8,7 +8,7 @@ import LogViewer from '@/components/logs/LogViewer.vue'
 import PodOverview from '@/components/workload/PodOverview.vue'
 import PortForwardDialog from '@/components/workload/PortForwardDialog.vue'
 import { api, message } from '@/api'
-import { asKind } from '@/composables/kind'
+import { asKind, singularTitle } from '@/composables/kind'
 import { EnvironmentKind, Kind } from '@/types'
 import type { ResourceRef } from '@/types'
 
@@ -33,9 +33,19 @@ const cluster = computed(() => clusters.clusters.find((c) => c.id === props.clus
 
 // The kind arrives from the URL, so it may be anything. An unrecognised kind
 // leaves the tabs empty rather than asking the cluster about a type that does
-// not exist.
-const resourceKind = computed(() => asKind(props.kind))
+// not exist. What counts as recognised comes from the cluster's catalogue, so
+// the operators' own resources are as openable as the built-in ones.
+const catalogue = computed(() => clusters.catalogues[props.clusterId] ?? [])
+const resourceKind = computed(() => asKind(props.kind, catalogue.value))
 const isPod = computed(() => resourceKind.value === Kind.KindPod)
+
+// The catalogue holds the word the engineer wrote in their own manifests, which
+// beats trimming an "s" off a route segment — a custom kind's segment is
+// "applications.argoproj.io" and has no "s" to trim.
+const heading = computed(() => {
+  const entry = catalogue.value.find((item) => item.kind === props.kind)
+  return singularTitle(entry?.title ?? props.kind)
+})
 
 const tabs = computed(() => {
   if (!resourceKind.value) return []
@@ -51,6 +61,13 @@ watch(
     tab.value = tabs.value[0]
   },
 )
+
+// A deep link can open before the catalogue has arrived, and for a custom
+// resource the tabs only come into existence with it. Without this the page
+// would hold the empty selection it started with and render nothing.
+watch(tabs, (available) => {
+  if (!tab.value || !available.includes(tab.value)) tab.value = available[0]
+})
 
 const ref_ = computed<ResourceRef | undefined>(() =>
   resourceKind.value
@@ -147,14 +164,17 @@ async function remove() {
         :namespace="realNamespace"
         :involving="name"
       />
+      <p v-else-if="!catalogue.length" class="px-6 py-10 text-center text-sm text-ink-faint">
+        Loading…
+      </p>
       <p v-else-if="!resourceKind" class="px-6 py-10 text-center text-sm text-ink-faint">
-        “{{ kind }}” is not a resource type Biebie Kube knows about.
+        “{{ kind }}” is not a resource type this cluster serves.
       </p>
     </div>
 
     <ConfirmDialog
       :open="deleting"
-      :title="`Delete ${kind.replace(/s$/, '')} “${name}”?`"
+      :title="`Delete ${heading} “${name}”?`"
       :detail="realNamespace ? `In namespace ${realNamespace}. This cannot be undone.` : 'This cannot be undone.'"
       :cluster="cluster"
       :require-typing="

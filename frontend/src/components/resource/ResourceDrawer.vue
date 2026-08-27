@@ -29,7 +29,7 @@ const ui = useUIStore()
 const router = useRouter()
 
 const cluster = computed(() => clusters.clusters.find((c) => c.id === props.clusterId))
-const resourceKind = computed(() => asKind(props.kind))
+const resourceKind = computed(() => asKind(props.kind, clusters.catalogues[props.clusterId]))
 const heading = computed(() => singularTitle(props.kindTitle || props.kind))
 
 const ref_ = computed<ResourceRef | undefined>(() =>

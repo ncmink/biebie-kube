@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 
 import { api, message } from '@/api'
+import { kindOf, titleFor } from '@/composables/environment'
 import { useUIStore } from '@/stores/ui'
 import { EnvironmentKind } from '@/types'
 import type { AccessProfile, Cluster, KubeconfigFile } from '@/types'
@@ -74,12 +75,26 @@ watch(contextName, (value) => {
   if (value && !name.value) name.value = value
 })
 
-watch(environmentKind, (kind) => {
-  if (!environmentName.value && kind) {
-    environmentName.value = kind.charAt(0).toUpperCase() + kind.slice(1)
-    environmentId.value = environmentId.value || kind
+/**
+ * The environment's name and id, which follow the kind chosen above.
+ *
+ * There is no field for either, so they used to be filled in only while still
+ * empty. That left them behind on every later edit: a cluster moved from
+ * production to development kept the name "Production", and since the card and
+ * the context trail show the name, the screen went on calling it production
+ * however many times the environment was changed.
+ *
+ * A name spelling out none of the environments was written somewhere else — an
+ * import, a handoff — and is kept exactly as it is.
+ */
+function environmentNaming(): { id: string; name: string } {
+  const kind = environmentKind.value
+  const written = environmentName.value.trim()
+  if (written && kindOf(written) === EnvironmentKind.EnvironmentUnknown) {
+    return { id: environmentId.value.trim(), name: written }
   }
-})
+  return { id: kind, name: titleFor(kind) }
+}
 
 /** fill starts the form from the cluster being edited, or empty for a new one. */
 function fill() {
@@ -131,12 +146,13 @@ async function importFile() {
 async function save() {
   saving.value = true
   error.value = ''
+  const environment = environmentNaming()
   const input = {
     name: name.value.trim(),
     customerId: customerId.value.trim(),
     customerName: customerName.value.trim(),
-    environmentId: environmentId.value.trim(),
-    environmentName: environmentName.value.trim(),
+    environmentId: environment.id,
+    environmentName: environment.name,
     environmentKind: environmentKind.value,
     kubeconfigRef: kubeconfigRef.value,
     contextName: contextName.value,

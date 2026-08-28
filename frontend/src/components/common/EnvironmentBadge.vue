@@ -1,11 +1,26 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { kindOf } from '@/composables/environment'
 import { EnvironmentKind } from '@/types'
 
 const props = defineProps<{ kind: EnvironmentKind; label?: string }>()
 
 const isProduction = computed(() => props.kind === EnvironmentKind.EnvironmentProduction)
+
+/**
+ * Whether the label may be shown instead of the kind's own word.
+ *
+ * A label naming no environment is somebody's own name for one and says more
+ * than the kind does. A label naming a different environment than the kind is
+ * one an earlier edit left behind, and the kind is what the rest of the
+ * application acts on — so the badge must not go on showing the word that
+ * disagrees with the confirmations and warnings.
+ */
+const labelAgrees = computed(() => {
+  const labelled = kindOf(props.label ?? '')
+  return labelled === EnvironmentKind.EnvironmentUnknown || labelled === props.kind
+})
 
 /**
  * Production is spelled out, not merely coloured.
@@ -15,7 +30,7 @@ const isProduction = computed(() => props.kind === EnvironmentKind.EnvironmentPr
  */
 const text = computed(() => {
   if (isProduction.value) return 'PRODUCTION'
-  if (props.label) return props.label.toUpperCase()
+  if (props.label && labelAgrees.value) return props.label.toUpperCase()
   if (props.kind === EnvironmentKind.EnvironmentStaging) return 'STAGING'
   if (props.kind === EnvironmentKind.EnvironmentDevelopment) return 'DEV'
   return ''

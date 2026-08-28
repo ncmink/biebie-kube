@@ -466,6 +466,30 @@ func toRecord(in domain.ClusterInput, server string) store.ClusterRecord {
 	}
 }
 
+// environmentKind reads which environment a stored cluster belongs to.
+//
+// The kind is normally stored outright. Records exist where it is empty while
+// the environment's id and name still say plainly which one was meant, and an
+// empty kind is not harmless: it drops the warning band, the production badge
+// and the typed confirmation, so the cluster everything else calls production
+// becomes the one it is safest to mis-click in.
+//
+// Only the words the environments are actually spelled with are accepted. An
+// id of "prod" or a name of "UAT" is somebody's own vocabulary, and guessing at
+// it is how a development cluster would end up marked production.
+func environmentKind(record store.ClusterRecord) bctx.Environment {
+	if kind := bctx.Environment(record.EnvironmentKind); kind != bctx.EnvironmentUnknown {
+		return kind
+	}
+	for _, word := range []string{record.EnvironmentID, record.EnvironmentName} {
+		switch kind := bctx.Environment(strings.ToLower(strings.TrimSpace(word))); kind {
+		case bctx.EnvironmentDevelopment, bctx.EnvironmentStaging, bctx.EnvironmentProduction:
+			return kind
+		}
+	}
+	return bctx.EnvironmentUnknown
+}
+
 func fromRecord(record store.ClusterRecord) domain.Cluster {
 	cluster := domain.Cluster{
 		ID:              record.ID,
@@ -474,7 +498,7 @@ func fromRecord(record store.ClusterRecord) domain.Cluster {
 		CustomerName:    record.CustomerName,
 		EnvironmentID:   record.EnvironmentID,
 		EnvironmentName: record.EnvironmentName,
-		EnvironmentKind: bctx.Environment(record.EnvironmentKind),
+		EnvironmentKind: environmentKind(record),
 		Server:          record.Server,
 		KubeconfigRef:   record.KubeconfigRef,
 		ContextName:     record.ContextName,

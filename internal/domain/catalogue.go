@@ -9,6 +9,7 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindNode, Title: "Nodes", Category: CategoryCluster,
 		Version: "v1", Resource: "nodes", Namespaced: false, Standalone: true,
+		Actions: []ResourceAction{ActionCordon, ActionUncordon},
 		Columns: []Column{
 			{Key: "status", Title: "Status"},
 			{Key: "roles", Title: "Roles"},
@@ -32,6 +33,7 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindDeployment, Title: "Deployments", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "deployments", Namespaced: true,
+		Actions: []ResourceAction{ActionScale, ActionRestart},
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
 			{Key: "upToDate", Title: "Up to date", Mono: true},
@@ -41,6 +43,7 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindStatefulSet, Title: "Stateful Sets", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "statefulsets", Namespaced: true,
+		Actions: []ResourceAction{ActionScale, ActionRestart},
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
 			{Key: "image", Title: "Image"},
@@ -49,6 +52,9 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindDaemonSet, Title: "Daemon Sets", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "daemonsets", Namespaced: true,
+		// A daemon set has no scale subresource: its replica count is the
+		// number of nodes it matches.
+		Actions: []ResourceAction{ActionRestart},
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
 			{Key: "desired", Title: "Desired", Mono: true},
@@ -58,6 +64,10 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindReplicaSet, Title: "Replica Sets", Category: CategoryWorkloads,
 		Group: "apps", Version: "v1", Resource: "replicasets", Namespaced: true,
+		// Restarting is a deployment's operation. A replica set's template is
+		// the rollout it already is, so stamping it would fight the deployment
+		// that owns it.
+		Actions: []ResourceAction{ActionScale},
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
 			{Key: "desired", Title: "Desired", Mono: true},
@@ -66,6 +76,7 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindReplicationController, Title: "Replication Controllers", Category: CategoryWorkloads,
 		Version: "v1", Resource: "replicationcontrollers", Namespaced: true,
+		Actions: []ResourceAction{ActionScale},
 		Columns: []Column{
 			{Key: "ready", Title: "Ready", Mono: true},
 			{Key: "desired", Title: "Desired", Mono: true},
@@ -82,6 +93,7 @@ var catalogue = []KindInfo{
 	{
 		Kind: KindCronJob, Title: "Cron Jobs", Category: CategoryWorkloads,
 		Group: "batch", Version: "v1", Resource: "cronjobs", Namespaced: true,
+		Actions: []ResourceAction{ActionSuspend, ActionResume, ActionTrigger},
 		Columns: []Column{
 			{Key: "schedule", Title: "Schedule", Mono: true},
 			{Key: "suspend", Title: "Suspended"},

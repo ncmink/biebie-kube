@@ -2,16 +2,15 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ConfigData from '@/components/resource/ConfigData.vue'
 import EventList from '@/components/resource/EventList.vue'
 import { api, message } from '@/api'
+import { actionsFor } from '@/composables/actions'
 import { agoClock } from '@/composables/format'
 import { asKind, singularTitle } from '@/composables/kind'
-import { EnvironmentKind, Kind } from '@/types'
+import { Kind } from '@/types'
 import type { ResourceInspect, ResourceRef, ResourceRow } from '@/types'
 import { useClusterStore } from '@/stores/clusters'
-import { useUIStore } from '@/stores/ui'
 
 const YamlEditor = defineAsyncComponent(() => import('@/components/yaml/YamlEditor.vue'))
 
@@ -22,15 +21,25 @@ const props = defineProps<{
   kindTitle: string
 }>()
 
-const emit = defineEmits<{ close: [] }>()
+// Deleting and the action menu are both raised rather than handled, so the one
+// confirmation the list view owns is the only place either can be agreed to.
+const emit = defineEmits<{ close: []; menu: [event: MouseEvent]; delete: [] }>()
 
 const clusters = useClusterStore()
-const ui = useUIStore()
 const router = useRouter()
 
 const cluster = computed(() => clusters.clusters.find((c) => c.id === props.clusterId))
 const resourceKind = computed(() => asKind(props.kind, clusters.catalogues[props.clusterId]))
 const heading = computed(() => singularTitle(props.kindTitle || props.kind))
+
+const kindInfo = computed(() =>
+  (clusters.catalogues[props.clusterId] ?? []).find((entry) => entry.kind === props.kind),
+)
+
+// The menu itself is the list view's, opened over the row this drawer shows.
+// A kind with nothing to offer would open one holding only the delete already
+// sitting in this header, so the button stays away.
+const hasActions = computed(() => actionsFor(kindInfo.value, props.row).length > 0)
 
 const ref_ = computed<ResourceRef | undefined>(() =>
   resourceKind.value
@@ -48,7 +57,6 @@ const inspect = ref<ResourceInspect | null>(null)
 const error = ref('')
 const loading = ref(false)
 const yamlOpen = ref(false)
-const deleting = ref(false)
 const labelsOpen = ref(false)
 const annotationsOpen = ref(false)
 
@@ -125,18 +133,6 @@ async function load() {
   }
 }
 
-async function remove() {
-  deleting.value = false
-  if (!ref_.value) return
-  try {
-    await api.deleteResource(props.clusterId, ref_.value)
-    ui.say(`Deleted ${props.row.name}.`)
-    emit('close')
-  } catch (err) {
-    ui.say(message(err), 'bad')
-  }
-}
-
 function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') emit('close')
 }
@@ -166,6 +162,18 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
       </h1>
       <div class="ml-auto flex items-center gap-1">
         <button
+          v-if="hasActions"
+          class="rounded-lg p-1.5 text-ink-faint hover:bg-surface-3 hover:text-ink"
+          title="Actions"
+          @click="emit('menu', $event)"
+        >
+          <svg viewBox="0 0 24 24" class="size-4" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="19" cy="12" r="1.6" />
+          </svg>
+        </button>
+        <button
           class="rounded-lg p-1.5 text-ink-faint hover:bg-surface-3 hover:text-ink"
           title="Edit YAML"
           @click="yamlOpen = !yamlOpen"
@@ -182,7 +190,7 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
         <button
           class="rounded-lg p-1.5 text-ink-faint hover:bg-bad/15 hover:text-bad"
           title="Delete"
-          @click="deleting = true"
+          @click="emit('delete')"
         >
           <svg viewBox="0 0 24 24" class="size-4" fill="none" aria-hidden="true">
             <path
@@ -324,17 +332,5 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
         </button>
       </template>
     </div>
-
-    <ConfirmDialog
-      :open="deleting"
-      :title="`Delete ${heading} “${row.name}”?`"
-      :detail="row.namespace ? `In namespace ${row.namespace}. This cannot be undone.` : 'This cannot be undone.'"
-      :cluster="cluster"
-      :require-typing="
-        cluster?.environmentKind === EnvironmentKind.EnvironmentProduction ? row.name : undefined
-      "
-      @cancel="deleting = false"
-      @confirm="remove"
-    />
   </aside>
 </template>

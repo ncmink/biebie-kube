@@ -157,7 +157,7 @@ biebie-kube/
 ├── core.go                wiring shared by every service, and nothing else
 ├── service_app.go         version, state path, the deep-link queue
 ├── service_cluster.go     clusters, kubeconfigs, namespaces, catalogue
-├── service_resource.go    tables, YAML, pods, events, overview, search
+├── service_resource.go    tables, YAML, actions, pods, events, overview, search
 ├── service_stream.go      logs, terminals, port forwards
 ├── service_argocd.go      Argo CD dashboard, sync, refresh, the UI button
 ├── service_access.go      Biebie Access integration and handoffs
@@ -296,6 +296,33 @@ its own session does.
 
 ---
 
+## Actions are verbs, not edits
+
+Right-clicking a row offers what its kind can be asked to do: a deployment
+scales and restarts, a node cordons, a cron job suspends and triggers. Each one
+is the patch `kubectl` would send for the same verb — `spec.replicas` through
+the scale subresource, `kubectl.kubernetes.io/restartedAt` on the pod template,
+`spec.unschedulable` on the node — so a cluster never reaches a state only this
+application knows how to read, and a restart from this window is the same thing
+as a restart from a terminal.
+
+The list lives on the kind in `internal/domain/catalogue.go` and travels to the
+UI with the rest of `KindInfo`, so the menu the engineer right-clicks and the
+service carrying the request out cannot come to disagree about what a kind
+offers. A daemon set is not offered a scale because it has no scale
+subresource; a custom resource is offered nothing at all, because what an
+operator's resource means is not something this application can know.
+
+Both halves of every toggle sit on the kind — cordon and uncordon, suspend and
+resume — and which half applies is decided from the row already on screen. That
+is what keeps a right-click from costing a round trip to find out whether a node
+is cordoned.
+
+Nothing refreshes afterwards. The watch behind the table sees the change the way
+it sees one made from anywhere else.
+
+---
+
 ## Argo CD is read from the cluster, not from Argo CD
 
 A cluster whose definitions include `applications.argoproj.io` gains an **Argo
@@ -331,11 +358,13 @@ name to be typed, because a sync with prune deletes live resources.
 ## Guardrails
 
 Production is marked with a word, not only a colour, and a hazard band that
-survives a washed-out external monitor. Deleting or applying against a
-production cluster asks for the object's name to be typed, and the dialog shows
-customer, environment and cluster — because the expensive mistake is not
-deleting the wrong object, it is deleting the right object in the wrong
-customer's cluster.
+survives a washed-out external monitor. Changing anything in a production
+cluster — a delete, an applied manifest, a scale, a restart — asks for the
+object's name to be typed, and the dialog shows customer, environment and
+cluster, because the expensive mistake is not deleting the wrong object, it is
+deleting the right object in the wrong customer's cluster. The rule is the same
+for every one of them on purpose: a guard an engineer has to reason about is
+one they will eventually reason their way around.
 
 Applying YAML always diffs against a freshly read object first. Secrets are
 listed but never decoded without a deliberate action.

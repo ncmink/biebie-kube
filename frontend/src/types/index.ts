@@ -21,10 +21,13 @@ export {
   Layer,
   PortForwardState,
   ProbeResult,
+  ResourceAction,
 } from '@bindings/biebie-kube/internal/domain/models'
 
 export type {
   AccessRequirement,
+  ActionRequest,
+  ActionResult,
   ApplyResult,
   ArgoActionResult,
   ArgoActivity,

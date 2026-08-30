@@ -73,6 +73,7 @@ export const api = {
   diffYAML: ResourceService.DiffResourceYAML,
   applyYAML: ResourceService.ApplyResourceYAML,
   deleteResource: ResourceService.DeleteResource,
+  performAction: ResourceService.PerformResourceAction,
   podDetail: ResourceService.GetPodDetail,
   containers: list(ResourceService.ListContainers),
   events: list(ResourceService.ListEvents),

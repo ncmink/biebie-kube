@@ -76,6 +76,21 @@ func (s *ResourceService) DeleteResource(ctx context.Context, clusterID string, 
 	return describe(s.core.resources.Delete(ctx, clusterID, ref))
 }
 
+// PerformResourceAction scales, restarts, cordons, suspends or triggers one
+// object.
+//
+// These are guarded the same way a delete is, and for the same reason: the
+// mistake worth preventing is not scaling the wrong deployment, it is scaling
+// the right one in the wrong customer's cluster.
+func (s *ResourceService) PerformResourceAction(
+	ctx context.Context,
+	clusterID string,
+	request domain.ActionRequest,
+) (domain.ActionResult, error) {
+	result, err := s.core.resources.Perform(ctx, clusterID, request)
+	return result, describe(err)
+}
+
 // GetPodDetail reads the overview tab of a pod.
 func (s *ResourceService) GetPodDetail(ctx context.Context, clusterID, namespace, name string) (domain.PodDetail, error) {
 	detail, err := s.core.resources.PodDetail(ctx, clusterID, namespace, name)

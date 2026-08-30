@@ -118,6 +118,14 @@ type KindInfo struct {
 	// cluster rather than from the compiled-in catalogue. Its columns are the
 	// definition's own, so two clusters can show the same kind differently.
 	Custom bool `json:"custom,omitempty"`
+
+	// Actions are the changes this kind accepts beyond editing its manifest.
+	//
+	// They are declared here so the menu the user right-clicks and the code
+	// that carries the request out read the same list and cannot come to
+	// disagree about what is on offer. Custom resources have none: what an
+	// operator's resource means is not something this application can know.
+	Actions []ResourceAction `json:"actions,omitempty"`
 }
 
 // Column describes one kind-specific table column.

@@ -23,6 +23,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   open: [row: ResourceRow]
+  menu: [row: ResourceRow, event: MouseEvent]
   sort: [key: string]
   end: []
 }>()
@@ -138,6 +139,7 @@ function isSelected(row: ResourceRow): boolean {
           :class="isSelected(row) ? 'bg-brand/10' : ''"
           :style="{ height: `${rowHeight}px` }"
           @click="emit('open', row)"
+          @contextmenu.prevent="emit('menu', row, $event)"
         >
           <td class="max-w-80 truncate px-6">
             <span class="flex items-center gap-2">

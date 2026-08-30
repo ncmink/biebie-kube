@@ -25,6 +25,7 @@ const timestamps = ref(false)
 const previous = ref(false)
 const tailLines = ref(500)
 const paused = ref(false)
+const saving = ref(false)
 const search = ref('')
 const streamId = ref('')
 const error = ref('')
@@ -114,9 +115,16 @@ function resume() {
   }
 }
 
-async function download() {
+/**
+ * Go writes the file behind a native save panel.
+ *
+ * The browser route — a blob URL on an anchor with a download attribute — is
+ * ignored by the webview, so the button did nothing at all.
+ */
+async function save() {
+  saving.value = true
   try {
-    const text = await api.downloadLogs(props.clusterId, {
+    const path = await api.saveLogs(props.clusterId, {
       namespace: props.namespace,
       pod: props.pod,
       container: container.value,
@@ -125,14 +133,12 @@ async function download() {
       tailLines: tailLines.value,
       previous: previous.value,
     })
-    const blob = new Blob([text], { type: 'text/plain' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `${props.pod}-${container.value}.log`
-    link.click()
-    URL.revokeObjectURL(link.href)
+    // No path means the panel was cancelled, which needs no notice.
+    if (path) ui.say(`Saved logs to ${path}.`)
   } catch (err) {
     ui.say(message(err), 'bad')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -201,10 +207,11 @@ watch(() => [props.pod, props.namespace], async () => {
           {{ paused ? `Resume${held.length ? ` (${held.length})` : ''}` : 'Pause' }}
         </button>
         <button
-          class="rounded-lg border border-line px-2 py-1 text-xs text-ink-muted hover:text-ink"
-          @click="download"
+          class="rounded-lg border border-line px-2 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
+          :disabled="saving"
+          @click="save"
         >
-          Download
+          {{ saving ? 'Saving…' : 'Save' }}
         </button>
       </div>
     </div>

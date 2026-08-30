@@ -90,7 +90,7 @@ export const api = {
 
   startLogStream: LogService.StartLogStream,
   stopLogStream: LogService.StopLogStream,
-  downloadLogs: LogService.DownloadLogs,
+  saveLogs: LogService.SaveLogs,
 
   // The terminal and port-forward requests are spread into arguments because
   // every caller has the parts to hand and none of them has a request object.

@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"biebie-kube/internal/domain"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // LogService streams container output.
@@ -27,10 +30,50 @@ func (s *LogService) StartLogStream(ctx context.Context, clusterID string, opts 
 // StopLogStream ends a stream.
 func (s *LogService) StopLogStream(streamID string) { s.core.logs.Stop(streamID) }
 
-// DownloadLogs returns a bounded snapshot for saving to a file.
-func (s *LogService) DownloadLogs(ctx context.Context, clusterID string, opts domain.LogOptions) (string, error) {
+// SaveLogs writes a bounded snapshot to a file the user picks, and returns the
+// path it landed on. An empty path means the save panel was cancelled.
+//
+// The file is written here rather than handed to the webview because the
+// webview has no downloads: an anchor carrying a download attribute is dropped
+// on the floor by WKWebView, so the click appeared to do nothing at all.
+func (s *LogService) SaveLogs(ctx context.Context, clusterID string, opts domain.LogOptions) (string, error) {
 	text, err := s.core.logs.Snapshot(ctx, clusterID, opts)
-	return text, describe(err)
+	if err != nil {
+		return "", describe(err)
+	}
+
+	dialog := application.Get().Dialog.SaveFile()
+	dialog.SetMessage("Save logs")
+	dialog.SetButtonText("Save")
+	dialog.SetFilename(logFilename(opts))
+	dialog.CanCreateDirectories(true)
+	dialog.AllowsOtherFileTypes(true)
+	dialog.AddFilter("Log", "*.log;*.txt")
+
+	path, err := dialog.PromptForSingleSelection()
+	if err != nil || path == "" {
+		return "", describe(err)
+	}
+
+	// Container output carries whatever the application logged, tokens
+	// included, so the saved copy is readable by its owner alone.
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		return "", describe(err)
+	}
+	return path, nil
+}
+
+// logFilename names the saved file after what was read, so a folder of them
+// stays legible.
+func logFilename(opts domain.LogOptions) string {
+	name := opts.Pod
+	if opts.Container != "" {
+		name += "-" + opts.Container
+	}
+	if opts.Previous {
+		name += "-previous"
+	}
+	return name + ".log"
 }
 
 // TerminalService runs interactive shells inside containers.

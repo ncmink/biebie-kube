@@ -23,6 +23,13 @@ const updateRepository = "ncmink/biebie-kube"
 var updaterPublicKey []byte
 
 // updaterWindowCSS tints the framework update window to match Biebie Kube.
+//
+// The primary button's hover and press states are restated because the
+// framework expresses them as filter: brightness(), which scales every channel
+// and so lifts its own mid-blue accent but drains a light one: our lavender
+// clips towards white and the button reads as faded rather than raised. Naming
+// both shades keeps the brand tint, and matches what the application itself
+// does with brand and brand-strong.
 const updaterWindowCSS = `:root {
 	--bg: #1c1d1f;
 	--surface: #17171c;
@@ -36,6 +43,16 @@ const updaterWindowCSS = `:root {
 	--success: #22c55e;
 	--error: #ef4444;
 	--radius: 10px;
+}
+
+.u__btn--primary:hover:not(:disabled) {
+	filter: none;
+	background: #b89ad9;
+}
+
+.u__btn--primary:active:not(:disabled) {
+	filter: none;
+	background: #a98ec8;
 }`
 
 // configureUpdater wires GitHub Releases into the Wails updater.

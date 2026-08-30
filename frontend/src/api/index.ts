@@ -11,12 +11,14 @@ import { Browser, CancellablePromise, Events } from '@wailsio/runtime'
 import {
   AccessService,
   AppService,
+  ArgoCDService,
   ClusterService,
   LogService,
   PortForwardService,
   ResourceService,
   TerminalService,
 } from '@bindings/biebie-kube'
+import type { ArgoAppRef } from '@bindings/biebie-kube/internal/domain/models'
 
 /**
  * list turns Go's nil slices into empty arrays.
@@ -76,6 +78,15 @@ export const api = {
   events: list(ResourceService.ListEvents),
   overview: ResourceService.GetClusterOverview,
   search: list(ResourceService.SearchResources),
+
+  argoInstalled: ArgoCDService.ArgoCDInstalled,
+  argoDashboard: ArgoCDService.GetArgoDashboard,
+  argoApplications: list(ArgoCDService.ListArgoApplications),
+  syncArgoApps: (clusterId: string, apps: ArgoAppRef[], prune: boolean) =>
+    ArgoCDService.SyncArgoApplications(clusterId, { apps, prune }),
+  refreshArgoApps: (clusterId: string, apps: ArgoAppRef[], hard: boolean) =>
+    ArgoCDService.RefreshArgoApplications(clusterId, { apps, hard }),
+  openArgoUI: ArgoCDService.OpenArgoUI,
 
   startLogStream: LogService.StartLogStream,
   stopLogStream: LogService.StopLogStream,

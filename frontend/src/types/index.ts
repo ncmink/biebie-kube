@@ -12,6 +12,7 @@
  */
 
 export {
+  ArgoActivityKind,
   Category,
   ClusterState,
   FailureKind,
@@ -25,6 +26,15 @@ export {
 export type {
   AccessRequirement,
   ApplyResult,
+  ArgoActionResult,
+  ArgoActivity,
+  ArgoApp,
+  ArgoAppRef,
+  ArgoCard,
+  ArgoChip,
+  ArgoDashboard,
+  ArgoEndpoint,
+  ArgoSummary,
   Cluster,
   ClusterInput,
   ClusterMetrics,

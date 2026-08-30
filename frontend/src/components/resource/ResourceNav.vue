@@ -22,6 +22,22 @@ type NavSubgroup = { key: string; label: string; kinds: KindInfo[] }
 type NavGroup = { type: 'group'; category: string; kinds: KindInfo[]; subgroups: NavSubgroup[] }
 type NavEntry = NavItem | NavGroup
 
+/**
+ * Argo CD gets its own section rather than a corner of Custom Resources.
+ *
+ * The definitions are custom resources like any other, but an engineer looking
+ * for an application does not think of it as somebody's CRD — they think of it
+ * as Argo CD. The kinds are listed here in the order the section reads, and are
+ * lifted out of the API-group subtree so neither place is a duplicate of the
+ * other.
+ */
+const argoCategory = 'Argo CD'
+const argoKinds = [
+  'applications.argoproj.io',
+  'applicationsets.argoproj.io',
+  'appprojects.argoproj.io',
+]
+
 const catalogue = computed(() => clusters.catalogues[props.clusterId] ?? [])
 const namespace = computed(() => clusters.sessions[props.clusterId]?.namespace ?? '')
 const connected = computed(() => clusters.sessions[props.clusterId]?.state === 'connected')
@@ -30,8 +46,18 @@ const forwardCount = computed(
   () => forwards.forwards.filter((session) => session.clusterId === props.clusterId).length,
 )
 
+const argo = computed<NavGroup | undefined>(() => {
+  const kinds = argoKinds
+    .map((name) => catalogue.value.find((entry) => entry.kind === name))
+    .filter((entry): entry is KindInfo => Boolean(entry))
+  if (!kinds.length) return undefined
+  return { type: 'group', category: argoCategory, kinds, subgroups: [] }
+})
+
 const tree = computed<NavEntry[]>(() => {
-  const entries: NavEntry[] = []
+  // Argo CD leads, beside Overview, because it is another cluster-wide answer
+  // rather than one more list of objects.
+  const entries: NavEntry[] = argo.value ? [argo.value] : []
   let group: NavGroup | undefined
 
   const flush = () => {
@@ -40,6 +66,7 @@ const tree = computed<NavEntry[]>(() => {
   }
 
   for (const kind of catalogue.value) {
+    if (argoKinds.includes(kind.kind)) continue
     if (kind.standalone) {
       flush()
       entries.push({ type: 'item', kind })
@@ -131,6 +158,11 @@ async function refreshCounts() {
 watch(activeKind, (kind) => {
   const info = catalogue.value.find((entry) => entry.kind === kind)
   if (!info || info.standalone) return
+
+  if (argoKinds.includes(kind)) {
+    open.value = { ...open.value, [argoCategory]: true }
+    return
+  }
 
   const next = { ...open.value, [info.category]: true }
   // Reaching a custom resource through search or a deep link must reveal where
@@ -275,6 +307,11 @@ onUnmounted(() => {
               stroke="currentColor"
               stroke-width="1.2"
             />
+            <g v-else-if="entry.category === 'Argo CD'">
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.2" />
+              <circle cx="8" cy="8" r="1.8" stroke="currentColor" stroke-width="1.2" />
+              <path d="M8 2.5v2M13.5 8h-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            </g>
             <path
               v-else
               d="M8 2.8l4.5 2v3.4c0 2.6-1.8 4.4-4.5 5.3-2.7-.9-4.5-2.7-4.5-5.3V4.8l4.5-2z"
@@ -286,6 +323,18 @@ onUnmounted(() => {
         </button>
 
         <div v-if="isOpen(entry.category)" class="ml-3 border-l border-line/80 py-0.5 pl-2">
+          <RouterLink
+            v-if="entry.category === 'Argo CD'"
+            :to="{ name: 'argocd', params: { clusterId } }"
+            class="mt-px block truncate rounded-md px-2 py-1"
+            :class="
+              route.name === 'argocd'
+                ? 'bg-brand/15 text-ink'
+                : 'text-ink-muted hover:bg-surface-2 hover:text-ink'
+            "
+          >
+            Dashboard
+          </RouterLink>
           <RouterLink
             v-for="kind in entry.kinds"
             :key="kind.kind"

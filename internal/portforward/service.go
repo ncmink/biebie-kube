@@ -285,6 +285,31 @@ func (s *Service) Sessions() []domain.PortForwardSession {
 	return out
 }
 
+// Find returns a running forward that already reaches one object.
+//
+// A second request for the same service reuses the tunnel instead of opening
+// another. Two forwards to one Argo CD server would be two rows in the panel
+// and two ports for the same page, and closing the one the engineer can see
+// would leave the other holding a socket.
+func (s *Service) Find(clusterID, namespace, resourceType, resourceName string) (domain.PortForwardSession, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, session := range s.sessions {
+		info := session.info
+		if info.State != domain.PortForwardRunning {
+			continue
+		}
+		if info.ClusterID == clusterID &&
+			info.Namespace == namespace &&
+			info.ResourceType == resourceType &&
+			info.ResourceName == resourceName {
+			return info, true
+		}
+	}
+	return domain.PortForwardSession{}, false
+}
+
 func (s *Service) get(id string) domain.PortForwardSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()

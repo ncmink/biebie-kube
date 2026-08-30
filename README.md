@@ -159,6 +159,7 @@ biebie-kube/
 ├── service_cluster.go     clusters, kubeconfigs, namespaces, catalogue
 ├── service_resource.go    tables, YAML, pods, events, overview, search
 ├── service_stream.go      logs, terminals, port forwards
+├── service_argocd.go      Argo CD dashboard, sync, refresh, the UI button
 ├── service_access.go      Biebie Access integration and handoffs
 │
 ├── internal/
@@ -169,6 +170,7 @@ biebie-kube/
 │   ├── cluster/           repository, lifecycle manager, diagnosis
 │   ├── access/            IPC client, event server, deep links
 │   ├── resources/         list, render, search, overview
+│   ├── argocd/            Argo CD dashboard, sync and refresh
 │   ├── logs/              bounded, batched streaming
 │   ├── terminal/          remotecommand + safe shell detection
 │   ├── portforward/       loopback-only sessions
@@ -291,6 +293,38 @@ A watch outlives the request that started it. Wails cancels a bound method's
 context when it returns, so anything longer-lived — informers, log streams, exec
 sessions, port forwards — is detached from it deliberately and ends only when
 its own session does.
+
+---
+
+## Argo CD is read from the cluster, not from Argo CD
+
+A cluster whose definitions include `applications.argoproj.io` gains an **Argo
+CD** section in the navigator, with a dashboard beside the cluster overview:
+counts across every Application, a card per resource kind, the Applications
+that need attention, and a timeline built from Kubernetes events.
+
+Argo CD's own REST API is deliberately not spoken. It would need a second set
+of credentials, a login this application has no business holding, and a
+reachable server — to read state that is already on the objects. Everything on
+the page comes through client-go, the same as every other view here.
+
+The two actions go the same way. A sync records an `operation` on the
+Application and the `argocd-application-controller` performs it; a refresh sets
+`argocd.argoproj.io/refresh` and Argo CD clears the annotation when it is done.
+Both therefore work against a cluster whose Argo CD server this machine cannot
+reach at all. A batch is never abandoned at the first failure: syncing forty
+Applications where two are refused reports the thirty-eight and names the two.
+
+Health outranks sync everywhere. An Application that is both `Degraded` and
+`OutOfSync` is listed as degraded, because fixing the sync would not fix it,
+and `Suspended` is somebody's deliberate pause rather than a fault to chase.
+
+**Open Argo CD UI** finds the server by its `app.kubernetes.io/name=argocd-server`
+label, so it works whichever namespace the chart was installed into, and it
+reuses a running port forward rather than opening a second tunnel to the same
+service — the one the port-forward panel lists is the one the browser is
+pointed at. Pruning against a cluster marked production asks for the cluster's
+name to be typed, because a sync with prune deletes live resources.
 
 ---
 

@@ -82,6 +82,7 @@ func main() {
 			application.NewService(&LogService{core: core}),
 			application.NewService(&TerminalService{core: core}),
 			application.NewService(&PortForwardService{core: core}),
+			application.NewService(&ArgoCDService{core: core}),
 			application.NewService(accessService),
 		},
 		Assets: application.AssetOptions{

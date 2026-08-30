@@ -37,13 +37,27 @@ export const usePortForwardStore = defineStore('portForwards', () => {
     await load()
   }
 
+  /**
+   * stopMany closes a set of forwards and reads the list back once.
+   *
+   * Clearing a cluster's eight tunnels through stop() would re-read the list
+   * eight times for one visible change. A refusal is counted and returned
+   * rather than thrown, because a batch where seven closed and one did not is
+   * neither a success nor a failure, and the caller has to be able to say so.
+   */
+  async function stopMany(ids: string[]): Promise<number> {
+    const results = await Promise.allSettled(ids.map((id) => api.stopPortForward(id)))
+    await load()
+    return results.filter((result) => result.status === 'rejected').length
+  }
+
   function subscribe() {
     on(events.portForwards, (sessions) => {
       forwards.value = sessions ?? []
     })
   }
 
-  return { forwards, load, start, stop, subscribe }
+  return { forwards, load, start, stop, stopMany, subscribe }
 })
 
 if (import.meta.hot) {

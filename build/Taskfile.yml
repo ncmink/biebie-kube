@@ -203,11 +203,82 @@ tasks:
     cmds:
       - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
 
+  dev:port:free:
+    summary: Frees the Vite dev port if a previous dev run left it held
+    internal: true
+    # `wails3 dev` starts the frontend in a process group of its own, so nothing
+    # the terminal sends reaches Vite, and tearing it down is the dev command's
+    # job alone. It does that job properly once it is asked to, but a run can end
+    # without it ever being asked: closing the terminal sends SIGHUP, which it
+    # does not listen for, and an interrupt that never arrives leaves it parked
+    # with the whole tree still under it. Either way Vite is left holding this
+    # port, and Vite runs with --strictPort, so the next run cannot step around
+    # it and refuses to start at all.
+    #
+    # Only a leftover of this dev server is cleared. Anything else listening
+    # there belongs to somebody, and a port clash is worth reporting rather than
+    # resolving by killing whatever is in the way.
+    cmds:
+      - platforms: [darwin, linux]
+        cmd: |
+          for pid in $(lsof -ti tcp:{{.VITE_PORT}} -sTCP:LISTEN 2>/dev/null); do
+            case "$(ps -p "$pid" -o command= 2>/dev/null)" in
+              *node*|*vite*|*npm*|*bun*)
+                echo "freeing port {{.VITE_PORT}} from a leftover dev server (pid $pid)"
+                kill -9 "$pid" 2>/dev/null || true
+                ;;
+            esac
+          done
+          exit 0
+      - platforms: [windows]
+        cmd: powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort {{.VITE_PORT}} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if ($proc.ProcessName -match 'node|bun') { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }; exit 0"
+
+  dev:stop:
+    summary: Stops a dev session, for when Ctrl+C in its terminal does nothing
+    # Interrupting `wails3 dev` shuts the whole session down properly: the app,
+    # the frontend task and Vite all go, and the port comes back. Sessions have
+    # nonetheless been found still running long after Ctrl+C was pressed at them
+    # repeatedly, with the interrupt never having arrived — the dev command was
+    # parked waiting for a signal that the terminal never delivered to it.
+    #
+    # Addressing the process by name rather than through the terminal is the way
+    # around that, since it does not depend on which process group the terminal
+    # believes it is talking to.
+    cmds:
+      - platforms: [darwin, linux]
+        cmd: |
+          pattern="wails3 dev -config"
+          pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+          if [ -z "$pids" ]; then
+            echo "no dev session found"
+          else
+            for pid in $pids; do
+              echo "asking dev session $pid to shut down"
+              kill -INT "$pid" 2>/dev/null || true
+            done
+            waited=0
+            while [ "$waited" -lt 15 ] && pgrep -f "$pattern" >/dev/null 2>&1; do
+              sleep 1
+              waited=$((waited + 1))
+            done
+            for pid in $(pgrep -f "$pattern" 2>/dev/null || true); do
+              echo "dev session $pid did not go quietly"
+              kill -9 "$pid" 2>/dev/null || true
+            done
+          fi
+          exit 0
+      - platforms: [windows]
+        cmd: powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*wails3*dev -config*' } | ForEach-Object { Write-Output \"stopping dev session $($_.ProcessId)\"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; exit 0"
+      # Whatever the session left holding the port goes too, since a dev command
+      # that had to be killed outright never got to take its frontend with it.
+      - task: dev:port:free
+
   dev:frontend:
     summary: Runs the frontend in development mode
     deps:
       - task: install:frontend:deps
     cmds:
+      - task: dev:port:free
       - task: frontend:dev:{{.PACKAGE_MANAGER}}
 
   frontend:dev:npm:

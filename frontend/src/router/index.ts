@@ -25,6 +25,12 @@ const router = createRouter({
           props: true,
         },
         {
+          path: 'argocd',
+          name: 'argocd',
+          component: () => import('@/views/ArgoDashboard.vue'),
+          props: true,
+        },
+        {
           path: 'r/:kind',
           name: 'resources',
           component: () => import('@/views/ResourceList.vue'),

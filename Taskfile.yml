@@ -35,7 +35,22 @@ tasks:
   dev:
     summary: Runs the application in development mode
     cmds:
+      # Both sweeps have to happen out here, around `wails3 dev` rather than
+      # inside it. The dev command refuses to start when the Vite port is taken,
+      # and it decides that before it runs a single task from this file, so a
+      # sweep placed among the dev tasks it launches would never get the chance
+      # to clear a leftover from the run before.
+      #
+      # The deferred one covers a run ended by closing the terminal, which the
+      # dev command does not survive long enough to tidy up after.
+      - task: "common:dev:port:free"
+      - defer: { task: "common:dev:port:free" }
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  dev:stop:
+    summary: Stops a dev session, for when Ctrl+C in its terminal does nothing
+    cmds:
+      - task: "common:dev:stop"
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)

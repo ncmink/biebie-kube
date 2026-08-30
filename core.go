@@ -19,6 +19,7 @@ import (
 	bctx "github.com/ncmink/biebie-protocol/context"
 
 	"biebie-kube/internal/access"
+	"biebie-kube/internal/argocd"
 	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/kube"
@@ -69,6 +70,7 @@ type Core struct {
 	logs      *logs.Service
 	terminals *terminal.Service
 	forwards  *portforward.Service
+	argocd    *argocd.Service
 }
 
 // NewCore constructs the application's services.
@@ -115,6 +117,11 @@ func NewCore() (*Core, error) {
 	core.logs = logs.NewService(core.clusters, events)
 	core.terminals = terminal.NewService(core.clusters, events)
 	core.forwards = portforward.NewService(core.clusters, events)
+
+	// Opening the Argo CD UI is a port forward like any other, so the Argo CD
+	// service borrows the one that already owns them rather than dialling a
+	// tunnel the port-forward panel would know nothing about.
+	core.argocd = argocd.NewService(core.clusters, core.forwards)
 
 	return core, nil
 }

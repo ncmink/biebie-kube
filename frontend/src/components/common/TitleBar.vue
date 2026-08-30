@@ -41,6 +41,24 @@ onMounted(async () => {
         </span>
       </RouterLink>
 
+      <RouterLink
+        v-if="route.name !== 'clusters'"
+        :to="{ name: 'clusters' }"
+        class="no-drag flex shrink-0 items-center rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink"
+        title="Back to clusters"
+        aria-label="Back to clusters"
+      >
+        <svg viewBox="0 0 16 16" class="size-3.5 shrink-0" fill="none" aria-hidden="true">
+          <path
+            d="M2.5 7L8 2.5 13.5 7v6a.5.5 0 01-.5.5H3a.5.5 0 01-.5-.5V7z"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+          <path d="M6.5 13.5v-4h3v4" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+        </svg>
+      </RouterLink>
+
       <div v-if="cluster" class="no-drag flex min-w-0 flex-1 items-center gap-3">
         <span class="h-5 w-px bg-line" aria-hidden="true" />
         <ContextTrail :cluster="cluster" class="min-w-0" />

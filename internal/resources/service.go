@@ -9,6 +9,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"biebie-kube/internal/cluster"
@@ -314,6 +315,71 @@ func (s *Service) read(
 		out = append(out, &list.Items[i])
 	}
 	return out, list.GetContinue() != "", nil
+}
+
+// readMatching returns the objects of one kind in a namespace whose labels a
+// selector accepts.
+//
+// It exists for the related lists, where what an object owns is settled by UID
+// after the read. The selector is only what lets the API server hand over the
+// handful of pods a deployment could own rather than the five thousand in its
+// namespace, so narrowing it wrongly — or not at all — costs a larger read and
+// never a wrong answer. A selector that matches everything is the same request
+// as no selector, and is sent as one.
+//
+// The limit stays the cold budget rather than the group's: a selector that
+// turned out not to narrow would otherwise return the first two hundred pods
+// in the namespace, which the ownership test would reject to nothing.
+func (s *Service) readMatching(
+	ctx context.Context,
+	clusterID string,
+	info domain.KindInfo,
+	namespace string,
+	selector labels.Selector,
+) ([]*unstructured.Unstructured, bool, error) {
+	if selector == nil || selector.Empty() {
+		return s.read(ctx, clusterID, info, namespace, false)
+	}
+
+	client, err := s.clusters.Client(clusterID)
+	if err != nil {
+		return nil, false, err
+	}
+	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
+
+	// A warm cache already holds the namespace, so it is filtered here rather
+	// than asked for a second time with the selector attached.
+	if hub, hubErr := s.clusters.Hub(clusterID); hubErr == nil {
+		if watch := hub.Existing(gvr, namespace); watch != nil {
+			if cached, err := watch.List(namespace); err == nil {
+				return matching(toUnstructured(cached), selector), false, nil
+			}
+		}
+	}
+
+	list, err := client.Dynamic.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector.String(),
+		Limit:         coldBudget,
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("list %s: %w", gvr.Resource, err)
+	}
+
+	out := make([]*unstructured.Unstructured, 0, len(list.Items))
+	for i := range list.Items {
+		out = append(out, &list.Items[i])
+	}
+	return out, list.GetContinue() != "", nil
+}
+
+func matching(objects []*unstructured.Unstructured, selector labels.Selector) []*unstructured.Unstructured {
+	out := make([]*unstructured.Unstructured, 0, len(objects))
+	for _, object := range objects {
+		if selector.Matches(labels.Set(object.GetLabels())) {
+			out = append(out, object)
+		}
+	}
+	return out
 }
 
 // Get returns one object in full, for the detail and YAML views.

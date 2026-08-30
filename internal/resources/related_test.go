@@ -43,6 +43,60 @@ func TestAServiceSelectorMatchesOnEveryLabel(t *testing.T) {
 	}
 }
 
+func TestAWorkloadSelectorNarrowsWithoutLosingItsExpressions(t *testing.T) {
+	selector := narrowingSelector(deploymentFixture())
+
+	// The pod-template-hash a replica set adds is not in the selector, so a
+	// selector that matched exactly rather than at-least would narrow the read
+	// to nothing and the ownership test would never see the pods.
+	if !selector.Matches(labels.Set{
+		"app": "argocd-server", "tier": "web", "pod-template-hash": "788769bdfc",
+	}) {
+		t.Fatal("a pod of this deployment was excluded from the read")
+	}
+	// Narrowing is allowed to let too much through — ownership settles it —
+	// but dropping the expressions would let through every pod labelled `app`,
+	// which is the read this exists to avoid.
+	if selector.Matches(labels.Set{"app": "argocd-server"}) {
+		t.Fatal("matchExpressions were dropped, so the read is the whole namespace")
+	}
+}
+
+func TestAReplicationControllerSelectorIsReadFromItsFlatMap(t *testing.T) {
+	// A replication controller is the one workload whose selector is a plain
+	// map. Read as a LabelSelector it would come back empty and widen the read
+	// to the namespace.
+	controller := &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{"selector": map[string]any{"app": "legacy"}},
+	}}
+
+	selector := narrowingSelector(controller)
+	if selector.Empty() {
+		t.Fatal("a flat selector was read as no selector")
+	}
+	if !selector.Matches(labels.Set{"app": "legacy"}) {
+		t.Fatal("a pod of this controller was excluded from the read")
+	}
+}
+
+func TestASelectorThatCannotBeReadWidensRatherThanNarrows(t *testing.T) {
+	// A cron job has no selector, and an empty LabelSelector is not a filter.
+	// Both must come back empty, because readMatching sends an empty selector
+	// as no selector at all — narrowing on a guess is what would turn a
+	// missing selector into a missing answer.
+	for name, object := range map[string]map[string]any{
+		"no selector":    {"spec": map[string]any{}},
+		"empty selector": {"spec": map[string]any{"selector": map[string]any{}}},
+		"no spec":        {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !narrowingSelector(&unstructured.Unstructured{Object: object}).Empty() {
+				t.Fatal("an unreadable selector was used to narrow the read")
+			}
+		})
+	}
+}
+
 func TestOnlyTheControllerOwnerCounts(t *testing.T) {
 	pod := &unstructured.Unstructured{Object: map[string]any{
 		"metadata": map[string]any{

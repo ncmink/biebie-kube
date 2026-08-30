@@ -338,19 +338,38 @@ Deployment ──owns──▶ ReplicaSet ──owns──▶ Pod
 Labels are the obvious way to answer "which pods does this deployment run?" and
 the wrong one. Two deployments in a namespace can carry the same `app` label, so
 a label search answers with the other one's pods as well — and a wrong answer
-that looks right is what gets acted on. A UID cannot be shared. The one
-relationship Kubernetes really does express with labels is a service's, and that
-is the one place a selector is used.
+that looks right is what gets acted on. A UID cannot be shared.
 
-An empty selector is refused rather than converted. `{}` means "match
-everything", so a headless service asked what it routes to would be handed the
-whole namespace.
+But a UID cannot be asked for either: `metadata.ownerReferences` is not an
+indexed field, so no field selector can narrow a list to one owner's children.
+Reading the whole namespace to find three pods is the cost of insisting on
+ownership, and it is not one worth paying. So both are used, the way a
+controller's own `ClaimPods` does it:
+
+```text
+selector ──▶ API server narrows the read ──▶ ownerRef UID decides the answer
+             (cheap, approximate)              (exact, client-side)
+```
+
+The two stages are kept apart because they are doing different jobs. The
+selector is an optimisation, so a kind whose selector cannot be read — a cron
+job has none — widens to the namespace rather than guessing; narrowing wrongly
+costs a larger read and never a wrong answer. The limit on that read stays the
+cold budget rather than the group's, because a selector that turned out not to
+narrow would otherwise return the first two hundred pods in the namespace and
+the ownership test would reject them to nothing.
+
+The exceptions are the two relationships Kubernetes really does express without
+ownership. A service routes to whatever carries its labels, whoever owns it, so
+there the selector is the answer and an empty one is refused rather than widened
+— `{}` means "match everything", and a headless service asked what it routes to
+would be handed the whole namespace. A node's pods are asked for with a field
+selector, because that is the one question that spans every namespace.
 
 The list is fetched when the drawer opens rather than watched. It costs a list
 where the inspector beside it costs a get, which is why it is a separate call:
 the properties paint as soon as the object is read instead of waiting on a
-namespace of pods. A node's pods are the exception and are asked for with a
-field selector, because that is the one question that spans every namespace.
+namespace of pods.
 
 ---
 

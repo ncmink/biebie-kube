@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
@@ -45,10 +46,13 @@ var ownerKinds = map[string]domain.Kind{
 // Related lists the objects that belong to one object: the pods a deployment
 // runs, the replica sets behind its revisions, the workload a pod came from.
 //
-// Ownership rather than labels decides what belongs to a workload. Two
-// deployments in one namespace can carry the same `app` label, and answering
-// "which pods is this deployment running?" with the other one's pods is worse
-// than not answering: it is the sort of wrong that gets acted on.
+// Labels narrow the read and ownership decides the answer, which is how a
+// controller finds its own children. Two deployments in one namespace can
+// carry the same `app` label, so a label match alone would answer "which pods
+// is this deployment running?" with the other one's pods as well — the sort of
+// wrong that gets acted on. A UID cannot be shared, but neither can it be
+// asked for: `metadata.ownerReferences` is not an indexed field, so the
+// selector is what keeps the read from being the whole namespace.
 func (s *Service) Related(ctx context.Context, clusterID string, ref domain.ResourceRef) ([]domain.RelatedGroup, error) {
 	obj, err := s.Get(ctx, clusterID, ref)
 	if err != nil {
@@ -65,25 +69,35 @@ func (s *Service) Related(ctx context.Context, clusterID string, ref domain.Reso
 		// A deployment owns replica sets, and the replica sets own the pods.
 		// Both hops are worth showing: the revisions say what happened to the
 		// rollout, the pods say what is serving traffic now.
-		replicaSets, err := s.ownedObjects(ctx, clusterID, domain.KindReplicaSet, obj)
+		//
+		// One selector narrows both reads. A deployment's replica sets and its
+		// pods all carry the pod template's labels, which is what its selector
+		// is written against.
+		selector := narrowingSelector(obj)
+		replicaSets, err := s.ownedObjects(ctx, clusterID, domain.KindReplicaSet, obj, selector)
 		if err != nil {
 			return nil, err
 		}
 		if group, ok := s.revisionGroup(clusterID, replicaSets); ok {
 			groups = append(groups, group)
 		}
-		if group, ok := s.podsOwnedBy(ctx, clusterID, obj.GetNamespace(), uidsOf(replicaSets)); ok {
+		if group, ok := s.podsOwnedBy(ctx, clusterID, obj.GetNamespace(), selector, uidsOf(replicaSets)); ok {
 			groups = append(groups, group)
 		}
 
 	case domain.KindStatefulSet, domain.KindDaemonSet, domain.KindReplicaSet,
 		domain.KindReplicationController, domain.KindJob:
-		if group, ok := s.podsOwnedBy(ctx, clusterID, obj.GetNamespace(), uidsOf([]*unstructured.Unstructured{obj})); ok {
+		owners := uidsOf([]*unstructured.Unstructured{obj})
+		if group, ok := s.podsOwnedBy(ctx, clusterID, obj.GetNamespace(), narrowingSelector(obj), owners); ok {
 			groups = append(groups, group)
 		}
 
 	case domain.KindCronJob:
-		jobs, err := s.ownedObjects(ctx, clusterID, domain.KindJob, obj)
+		// A cron job has no selector of its own and stamps no label of its own
+		// on the jobs it creates, so this read is the namespace. Jobs are few
+		// where pods are many, which is why that is affordable here and would
+		// not be for a workload.
+		jobs, err := s.ownedObjects(ctx, clusterID, domain.KindJob, obj, labels.Everything())
 		if err != nil {
 			return nil, err
 		}
@@ -177,20 +191,19 @@ func (s *Service) ownerGroup(ctx context.Context, clusterID string, obj *unstruc
 }
 
 // ownedObjects lists the objects of one kind in an owner's namespace that the
-// owner created.
+// owner created, reading only the ones the selector could match.
 func (s *Service) ownedObjects(
 	ctx context.Context,
 	clusterID string,
 	kind domain.Kind,
 	owner *unstructured.Unstructured,
+	selector labels.Selector,
 ) ([]*unstructured.Unstructured, error) {
 	info, ok := s.clusters.LookupKind(clusterID, kind)
 	if !ok {
 		return nil, fmt.Errorf("unknown resource type %q", kind)
 	}
-	// subscribe is false: a drawer opened once should not start a watch that
-	// evicts the cache belonging to the table the engineer came from.
-	objects, _, err := s.read(ctx, clusterID, info, owner.GetNamespace(), false)
+	objects, _, err := s.readMatching(ctx, clusterID, info, owner.GetNamespace(), selector)
 	if err != nil {
 		return nil, err
 	}
@@ -209,39 +222,51 @@ func (s *Service) ownedObjects(
 func (s *Service) podsOwnedBy(
 	ctx context.Context,
 	clusterID, namespace string,
+	selector labels.Selector,
 	owners map[string]bool,
 ) (domain.RelatedGroup, bool) {
 	if len(owners) == 0 {
 		return domain.RelatedGroup{}, false
 	}
-	return s.podGroup(ctx, clusterID, namespace, func(pod *unstructured.Unstructured) bool {
+	return s.podGroup(ctx, clusterID, namespace, selector, func(pod *unstructured.Unstructured) bool {
 		reference, ok := controllerOf(pod)
 		return ok && owners[string(reference.UID)]
 	})
 }
 
 // podsMatching lists the pods in a namespace a service's selector accepts.
+//
+// Here the selector is the answer rather than a way of narrowing the read, so
+// nothing is filtered afterwards: a service routes to whatever carries its
+// labels, whoever owns it.
 func (s *Service) podsMatching(
 	ctx context.Context,
 	clusterID, namespace string,
 	selector labels.Selector,
 ) (domain.RelatedGroup, bool) {
-	return s.podGroup(ctx, clusterID, namespace, func(pod *unstructured.Unstructured) bool {
-		return selector.Matches(labels.Set(pod.GetLabels()))
+	return s.podGroup(ctx, clusterID, namespace, selector, func(*unstructured.Unstructured) bool {
+		return true
 	})
 }
 
-// podGroup renders the pods in a namespace that a test accepts.
+// podGroup renders the pods in a namespace that a selector could match and a
+// test accepts.
+//
+// The two stages do different jobs. The selector is an optimisation the API
+// server can help with; the test is the correctness. Keeping them apart is
+// what lets a kind whose selector cannot be read fall back to reading the
+// namespace instead of answering with it.
 func (s *Service) podGroup(
 	ctx context.Context,
 	clusterID, namespace string,
+	selector labels.Selector,
 	keep func(*unstructured.Unstructured) bool,
 ) (domain.RelatedGroup, bool) {
 	info, ok := s.clusters.LookupKind(clusterID, domain.KindPod)
 	if !ok {
 		return domain.RelatedGroup{}, false
 	}
-	pods, _, err := s.read(ctx, clusterID, info, namespace, false)
+	pods, truncated, err := s.readMatching(ctx, clusterID, info, namespace, selector)
 	if err != nil {
 		return domain.RelatedGroup{}, false
 	}
@@ -256,7 +281,12 @@ func (s *Service) podGroup(
 		return domain.RelatedGroup{}, false
 	}
 
-	return s.renderPods(ctx, clusterID, info, matched), true
+	group := s.renderPods(ctx, clusterID, info, matched)
+	// A read that stopped at the budget is a prefix whether or not the group
+	// itself hit one, and saying so is the difference between a short list and
+	// a wrong one.
+	group.Truncated = group.Truncated || truncated
+	return group, true
 }
 
 // podsOnNode lists what a node is running.
@@ -411,11 +441,49 @@ func uidsOf(objects []*unstructured.Unstructured) map[string]bool {
 	return uids
 }
 
+// narrowingSelector reads the labels a controller uses to find its own
+// children, so the API server can make the first pass.
+//
+// Everything is the honest answer when there is no selector to read, because
+// this only ever decides how much comes back: what an object owns is settled
+// by UID afterwards. That is also why it does not share code with
+// serviceSelector, which refuses the empty case — the two look alike and mean
+// opposite things. An unusable selector here is a larger read; an unusable
+// selector there would be a headless service claiming the namespace.
+func narrowingSelector(obj *unstructured.Unstructured) labels.Selector {
+	// A replication controller selects with a flat map, where every other
+	// workload uses a LabelSelector. NestedStringMap refuses the latter — its
+	// values are a map and a list, not strings — which is what tells the two
+	// apart without reading the kind.
+	if flat, found, err := unstructured.NestedStringMap(obj.Object, "spec", "selector"); err == nil && found {
+		if len(flat) == 0 {
+			return labels.Everything()
+		}
+		return labels.SelectorFromSet(flat)
+	}
+
+	raw, found, err := unstructured.NestedMap(obj.Object, "spec", "selector")
+	if err != nil || !found {
+		return labels.Everything()
+	}
+	var selector metav1.LabelSelector
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &selector); err != nil {
+		return labels.Everything()
+	}
+	parsed, err := metav1.LabelSelectorAsSelector(&selector)
+	if err != nil {
+		return labels.Everything()
+	}
+	return parsed
+}
+
 // serviceSelector reads a service's selector, which is a flat map rather than
 // the LabelSelector every workload uses.
 //
 // A service without one — headless, or backed by hand-written endpoints —
-// selects nothing rather than everything.
+// selects nothing rather than everything. This is the one place a selector is
+// the answer rather than a way of narrowing a read, so the empty case has to
+// be refused instead of widened.
 func serviceSelector(obj *unstructured.Unstructured) (labels.Selector, bool) {
 	set, found, err := unstructured.NestedStringMap(obj.Object, "spec", "selector")
 	if err != nil || !found || len(set) == 0 {

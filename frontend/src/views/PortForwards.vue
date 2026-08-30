@@ -139,7 +139,7 @@ onMounted(() => void sessions.load())
 <template>
   <div class="h-full overflow-y-auto px-6 py-6">
     <div class="flex items-center gap-3">
-      <button
+      <!-- <button
         class="-ml-1.5 shrink-0 rounded-lg p-1.5 text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
         :title="backLabel"
         :aria-label="backLabel"
@@ -154,7 +154,7 @@ onMounted(() => void sessions.load())
             stroke-linejoin="round"
           />
         </svg>
-      </button>
+      </button> -->
       <h1 class="text-sm font-semibold uppercase tracking-widest text-ink-faint">Port forwards</h1>
       <span v-if="sessions.forwards.length" class="font-mono text-xs text-ink-faint">
         {{ running }} running · {{ grouped.length }}
@@ -169,11 +169,26 @@ onMounted(() => void sessions.load())
     <section v-for="group in grouped" :key="group.clusterId" class="mt-5">
       <header class="flex items-center gap-2">
         <button
-          class="group flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left"
+          class="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left"
           :class="group.cluster ? 'hover:bg-surface-2' : 'cursor-default'"
           :disabled="!group.cluster"
           @click="openCluster(group)"
         >
+          <svg
+            v-if="group.cluster"
+            viewBox="0 0 20 20"
+            class="size-3.5 shrink-0 text-ink-faint"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M16.5 10H4M9 4.5L3.5 10L9 15.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
           <StateDot
             :state="clusters.sessions[group.clusterId]?.state"
             :pulse="clusters.sessions[group.clusterId]?.state === 'connecting'"
@@ -182,13 +197,6 @@ onMounted(() => void sessions.load())
             <span v-if="group.customer">{{ group.customer }} · </span>{{ group.name }}
           </h2>
           <EnvironmentBadge :kind="group.environmentKind" :label="group.environmentName" />
-          <span
-            v-if="group.cluster"
-            class="text-xs text-ink-faint opacity-0 transition group-hover:opacity-100"
-            aria-hidden="true"
-          >
-            →
-          </span>
         </button>
 
         <span class="shrink-0 font-mono text-[11px] text-ink-faint">

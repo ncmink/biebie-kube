@@ -316,7 +316,7 @@ watch(() => [props.pod, props.namespace], async () => {
 <template>
   <div
     class="flex h-full min-h-0 flex-col"
-    :class="expanded ? 'fixed inset-0 z-40 bg-surface-0' : ''"
+    :class="expanded ? 'fixed inset-0 z-40 bg-surface-0 pt-8' : ''"
   >
     <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-4 py-2">
       <LogButton :label="follow ? 'Stop following' : 'Follow'" :active="follow" @click="follow = !follow">

@@ -29,6 +29,32 @@
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
 }
 
+/* The sixteen colours a container may ask for by escape code, so that a log
+   line can choose its own and still be legible in either appearance.
+
+   These sit in a plain rule rather than in @theme above because nothing names
+   them in a class: the log viewer reads them from a style attribute after
+   parsing the line, and Tailwind drops a theme variable that no utility
+   mentions. */
+:root {
+  --color-ansi-black: #3f3f46;
+  --color-ansi-red: #f87171;
+  --color-ansi-green: #4ade80;
+  --color-ansi-yellow: #fbbf24;
+  --color-ansi-blue: #60a5fa;
+  --color-ansi-magenta: #c084fc;
+  --color-ansi-cyan: #22d3ee;
+  --color-ansi-white: #d4d4d8;
+  --color-ansi-bright-black: #71717a;
+  --color-ansi-bright-red: #fca5a5;
+  --color-ansi-bright-green: #86efac;
+  --color-ansi-bright-yellow: #fcd34d;
+  --color-ansi-bright-blue: #93c5fd;
+  --color-ansi-bright-magenta: #d8b4fe;
+  --color-ansi-bright-cyan: #67e8f9;
+  --color-ansi-bright-white: #fafafa;
+}
+
 /* Light appearance re-points the same tokens, so every component keeps working
    without a second set of classes. */
 .theme-light {
@@ -52,6 +78,25 @@
   --color-warn: #b45309;
   --color-bad: #b91c1c;
   --color-info: #0369a1;
+
+  /* Terminal palettes assume a dark background. On white the same hues have to
+     be darkened or a yellow warning disappears into the page. */
+  --color-ansi-black: #27272a;
+  --color-ansi-red: #b91c1c;
+  --color-ansi-green: #15803d;
+  --color-ansi-yellow: #a16207;
+  --color-ansi-blue: #1d4ed8;
+  --color-ansi-magenta: #7e22ce;
+  --color-ansi-cyan: #0e7490;
+  --color-ansi-white: #52525b;
+  --color-ansi-bright-black: #71717a;
+  --color-ansi-bright-red: #dc2626;
+  --color-ansi-bright-green: #16a34a;
+  --color-ansi-bright-yellow: #ca8a04;
+  --color-ansi-bright-blue: #2563eb;
+  --color-ansi-bright-magenta: #9333ea;
+  --color-ansi-bright-cyan: #0891b2;
+  --color-ansi-bright-white: #3f3f46;
 }
 
 @font-face {

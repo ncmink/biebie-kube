@@ -11,7 +11,7 @@ info:
   description: "Kubernetes workspace for the biebie.net family."
   copyright: "© 2026, Biebie"
   comments: "Opens customer clusters handed over by Biebie Access."
-  version: "0.2.6"
+  version: "0.2.7"
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
   #                               # If not set and Assets.car exists, defaults to "appicon"

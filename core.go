@@ -35,7 +35,7 @@ import (
 // appVersion is shown in Settings, sent as the Kubernetes user agent, and
 // compared with GitHub Releases. Release builds stamp it with
 // -X main.appVersion=…; a var is required so -X can replace it.
-var appVersion = "0.2.7"
+var appVersion = "0.2.8"
 
 // Events published to the frontend by the application layer itself. The
 // per-domain events are declared by the packages that emit them.

@@ -1,118 +1,145 @@
 package resources
 
 import (
-	"encoding/base64"
-	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"biebie-kube/internal/domain"
 )
 
-func TestInspectSecretKeepsBase64AndDoesNotDecode(t *testing.T) {
-	encoded := base64.StdEncoding.EncodeToString([]byte("hunter2"))
-	secret := object(t, `{
-		"metadata": {"name": "argocd-redis", "namespace": "argo-ns"},
-		"type": "Opaque",
-		"data": {"auth": "`+encoded+`"}
-	}`)
+func TestADeploymentReportsEveryReplicaCount(t *testing.T) {
+	properties := propertyMap(inspectDeployment(deploymentFixture()))
 
-	got := Inspect(domain.KindSecret, secret)
-	if got.Type != "Opaque" {
-		t.Fatalf("type = %q", got.Type)
+	// The five numbers together are what says whether a rollout finished:
+	// "2 available" alone cannot distinguish a healthy deployment from one
+	// serving the old version while the new one crash-loops.
+	if got := properties["Replicas"]; got != "3 desired, 2 updated, 3 total, 2 available, 1 unavailable" {
+		t.Fatalf("Replicas = %q", got)
 	}
-	if len(got.Data) != 1 || got.Data[0].Key != "auth" {
-		t.Fatalf("data = %+v", got.Data)
-	}
-	if got.Data[0].Value != encoded {
-		t.Fatalf("value = %q, want the stored base64 %q — must not decode", got.Data[0].Value, encoded)
-	}
-	if got.Data[0].Value == "hunter2" {
-		t.Fatal("plaintext leaked into the inspect payload")
+	if got := properties["Strategy Type"]; got != "RollingUpdate" {
+		t.Fatalf("Strategy Type = %q", got)
 	}
 }
 
-func TestInspectSecretReencodesTypedBytesAsBase64(t *testing.T) {
-	secret := object(t, `{"metadata": {"name": "tls"}}`)
-	secret.Object["data"] = map[string]any{
-		"tls.key": []byte("BEGIN PRIVATE KEY"),
-	}
+func TestOnlyTheConditionsThatHoldAreNamed(t *testing.T) {
+	properties := propertyMap(inspectDeployment(deploymentFixture()))
 
-	got := Inspect(domain.KindSecret, secret)
-	if len(got.Data) != 1 {
-		t.Fatalf("data = %+v", got.Data)
-	}
-	want := base64.StdEncoding.EncodeToString([]byte("BEGIN PRIVATE KEY"))
-	if got.Data[0].Value != want {
-		t.Fatalf("value = %q, want re-encoded base64 %q", got.Data[0].Value, want)
-	}
-	if got.Data[0].Value == "BEGIN PRIVATE KEY" {
-		t.Fatal("typed []byte was passed through as plaintext")
+	// ReplicaFailure is False, which is the deployment saying nothing is
+	// wrong. Listing it would read as though something is.
+	if got := properties["Conditions"]; got != "Progressing, Available" {
+		t.Fatalf("Conditions = %q", got)
 	}
 }
 
-func TestInspectConfigMapKeepsPlainDataAndBinaryAsStored(t *testing.T) {
-	cm := object(t, `{
-		"metadata": {"name": "app"},
-		"data": {"config.yaml": "listen: :8080"},
-		"binaryData": {"blob": "AQID"}
-	}`)
+func TestASelectorKeepsItsExpressions(t *testing.T) {
+	properties := propertyMap(inspectDeployment(deploymentFixture()))
 
-	got := Inspect(domain.KindConfigMap, cm)
-	if len(got.Data) != 2 {
-		t.Fatalf("data = %+v", got.Data)
-	}
-	byKey := map[string]domain.DataEntry{}
-	for _, entry := range got.Data {
-		byKey[entry.Key] = entry
-	}
-	if byKey["config.yaml"].Value != "listen: :8080" || byKey["config.yaml"].Binary {
-		t.Fatalf("plain data = %+v", byKey["config.yaml"])
-	}
-	if byKey["blob"].Value != "AQID" || !byKey["blob"].Binary {
-		t.Fatalf("binary data = %+v", byKey["blob"])
+	// A selector shown as its matchLabels alone is a different selector, and
+	// the reader has no way to tell it was abridged.
+	want := "app=argocd-server\ntier In (web, api)"
+	if got := properties["Selector"]; got != want {
+		t.Fatalf("Selector = %q", got)
 	}
 }
 
-func TestInspectPDBShowsSelectorAndHealthyCounts(t *testing.T) {
-	pdb := object(t, `{
-		"metadata": {
-			"name": "argocd-application-controller",
-			"namespace": "argo-ns",
-			"labels": {"app.kubernetes.io/name": "argocd-application-controller"}
+func TestImagesAreListedOnceWithInitContainersFirst(t *testing.T) {
+	properties := propertyMap(inspectDeployment(deploymentFixture()))
+
+	want := "busybox:1.36\nargocd:v3.4.4\nenvoy:v1.31"
+	if got := properties["Images"]; got != want {
+		t.Fatalf("Images = %q", got)
+	}
+}
+
+func TestSchedulingRulesAreCountedAndEmptyOnesLeftOut(t *testing.T) {
+	properties := propertyMap(inspectDeployment(deploymentFixture()))
+
+	if got := properties["Tolerations"]; got != "2 Tolerations" {
+		t.Fatalf("Tolerations = %q", got)
+	}
+	if got := properties["Pod Anti Affinities"]; got != "1 Rule" {
+		t.Fatalf("Pod Anti Affinities = %q", got)
+	}
+	// A deployment with no pod affinity gets no row at all: a drawer of
+	// "None" costs the reader the same attention as a real value.
+	if _, found := properties["Pod Affinities"]; found {
+		t.Fatal("an absent affinity was given a row")
+	}
+}
+
+func TestAKindWithNoInspectorOfItsOwnKeepsItsMetadata(t *testing.T) {
+	// Inspect must still answer for a kind it has no properties for, or the
+	// drawer loses labels and annotations along with the rows it never had.
+	inspect := Inspect(domain.KindLease, &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{
+			"name":   "kube-scheduler",
+			"labels": map[string]any{"app": "scheduler"},
 		},
-		"spec": {
-			"minAvailable": 1,
-			"selector": {"matchLabels": {
-				"app.kubernetes.io/instance": "argocd",
-				"app.kubernetes.io/name": "argocd-application-controller"
-			}}
-		},
-		"status": {"currentHealthy": 3, "desiredHealthy": 1}
-	}`)
+	}})
 
-	got := Inspect(domain.KindPodDisruptionBudget, pdb)
-	if got.Labels["app.kubernetes.io/name"] != "argocd-application-controller" {
-		t.Fatalf("labels = %+v", got.Labels)
+	if len(inspect.Properties) != 0 {
+		t.Fatalf("properties = %v", inspect.Properties)
 	}
-	byLabel := map[string]string{}
-	for _, prop := range got.Properties {
-		byLabel[prop.Label] = prop.Value
-	}
-	if !strings.Contains(byLabel["Selector"], "app.kubernetes.io/instance=argocd") {
-		t.Fatalf("selector = %q", byLabel["Selector"])
-	}
-	if byLabel["Min Available"] != "1" || byLabel["Max Unavailable"] != "N/A" {
-		t.Fatalf("availability = %+v", byLabel)
-	}
-	if byLabel["Current Healthy"] != "3" || byLabel["Desired Healthy"] != "1" {
-		t.Fatalf("healthy = %+v", byLabel)
+	if inspect.Labels["app"] != "scheduler" {
+		t.Fatalf("labels = %v", inspect.Labels)
 	}
 }
 
-func TestInspectOtherKindsHaveNoData(t *testing.T) {
-	pod := object(t, `{"metadata": {"name": "api"}}`)
-	got := Inspect(domain.KindPod, pod)
-	if len(got.Data) != 0 {
-		t.Fatalf("pod inspect leaked data: %+v", got.Data)
+func propertyMap(properties []domain.InspectProperty) map[string]string {
+	out := make(map[string]string, len(properties))
+	for _, property := range properties {
+		out[property.Label] = property.Value
 	}
+	return out
+}
+
+func deploymentFixture() *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{
+			"replicas": int64(3),
+			"strategy": map[string]any{"type": "RollingUpdate"},
+			"selector": map[string]any{
+				"matchLabels": map[string]any{"app": "argocd-server"},
+				"matchExpressions": []any{
+					map[string]any{"key": "tier", "operator": "In", "values": []any{"web", "api"}},
+				},
+			},
+			"template": map[string]any{
+				"spec": map[string]any{
+					"nodeSelector": map[string]any{"kubernetes.io/os": "linux"},
+					"tolerations": []any{
+						map[string]any{"key": "one"},
+						map[string]any{"key": "two"},
+					},
+					"affinity": map[string]any{
+						"podAntiAffinity": map[string]any{
+							"preferredDuringSchedulingIgnoredDuringExecution": []any{
+								map[string]any{"weight": int64(100)},
+							},
+						},
+					},
+					"initContainers": []any{
+						map[string]any{"name": "wait", "image": "busybox:1.36"},
+					},
+					"containers": []any{
+						map[string]any{"name": "server", "image": "argocd:v3.4.4"},
+						map[string]any{"name": "proxy", "image": "envoy:v1.31"},
+						map[string]any{"name": "sidecar", "image": "envoy:v1.31"},
+					},
+				},
+			},
+		},
+		"status": map[string]any{
+			"replicas":            int64(3),
+			"updatedReplicas":     int64(2),
+			"availableReplicas":   int64(2),
+			"unavailableReplicas": int64(1),
+			"conditions": []any{
+				map[string]any{"type": "Progressing", "status": "True"},
+				map[string]any{"type": "Available", "status": "True"},
+				map[string]any{"type": "ReplicaFailure", "status": "False"},
+			},
+		},
+	}}
 }

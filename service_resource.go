@@ -40,6 +40,17 @@ func (s *ResourceService) InspectResource(ctx context.Context, clusterID string,
 	return inspect, describe(err)
 }
 
+// ListRelatedResources returns the objects that belong to one object: the pods
+// a deployment runs, the revisions behind it, the workload a pod came from.
+//
+// Separate from InspectResource rather than folded into it, because it costs a
+// list where the inspector costs a get: the properties should paint as soon as
+// the object is read instead of waiting on a namespace of pods.
+func (s *ResourceService) ListRelatedResources(ctx context.Context, clusterID string, ref domain.ResourceRef) ([]domain.RelatedGroup, error) {
+	groups, err := s.core.resources.Related(ctx, clusterID, ref)
+	return groups, describe(err)
+}
+
 // GetResourceYAML returns a resource as editable YAML.
 func (s *ResourceService) GetResourceYAML(ctx context.Context, clusterID string, ref domain.ResourceRef) (string, error) {
 	yaml, err := s.core.manifests.Read(ctx, clusterID, ref)

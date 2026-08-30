@@ -323,6 +323,37 @@ it sees one made from anywhere else.
 
 ---
 
+## Ownership decides what belongs to what
+
+Opening a deployment shows its revisions and the pods it is running; opening a
+pod names the deployment above it. The chain is walked with `ownerReferences`
+rather than with the selector on the manifest:
+
+```text
+Deployment ──owns──▶ ReplicaSet ──owns──▶ Pod
+     ▲                                     │
+     └────────── Controlled By ────────────┘
+```
+
+Labels are the obvious way to answer "which pods does this deployment run?" and
+the wrong one. Two deployments in a namespace can carry the same `app` label, so
+a label search answers with the other one's pods as well — and a wrong answer
+that looks right is what gets acted on. A UID cannot be shared. The one
+relationship Kubernetes really does express with labels is a service's, and that
+is the one place a selector is used.
+
+An empty selector is refused rather than converted. `{}` means "match
+everything", so a headless service asked what it routes to would be handed the
+whole namespace.
+
+The list is fetched when the drawer opens rather than watched. It costs a list
+where the inspector beside it costs a get, which is why it is a separate call:
+the properties paint as soon as the object is read instead of waiting on a
+namespace of pods. A node's pods are the exception and are asked for with a
+field selector, because that is the one question that spans every namespace.
+
+---
+
 ## Argo CD is read from the cluster, not from Argo CD
 
 A cluster whose definitions include `applications.argoproj.io` gains an **Argo

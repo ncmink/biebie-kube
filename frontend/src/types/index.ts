@@ -61,6 +61,7 @@ export type {
   PortForwardSession,
   Probe,
   InspectProperty,
+  RelatedGroup,
   ResourcePage,
   ResourceRef,
   ResourceInspect,

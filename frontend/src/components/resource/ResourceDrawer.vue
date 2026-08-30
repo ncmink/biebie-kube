@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import ConfigData from '@/components/resource/ConfigData.vue'
 import EventList from '@/components/resource/EventList.vue'
+import RelatedGroups from '@/components/resource/RelatedGroups.vue'
 import { api, message } from '@/api'
 import { actionsFor } from '@/composables/actions'
 import { agoClock } from '@/composables/format'
@@ -291,6 +292,8 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
             </div>
           </dl>
         </section>
+
+        <RelatedGroups v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 
         <section class="mt-6">
           <h2 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">

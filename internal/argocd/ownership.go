@@ -15,17 +15,25 @@ import (
 )
 
 const (
-	// trackingAnnotation is what Argo CD writes when its resource tracking
+	// TrackingAnnotation is what Argo CD writes when its resource tracking
 	// method is `annotation`. The value names the Application and repeats the
 	// object's own identity, which is what makes it checkable rather than
 	// merely suggestive.
-	trackingAnnotation = "argocd.argoproj.io/tracking-id"
+	//
+	// It is exported because it is also the one annotation a comparison
+	// against Git must ignore: Argo CD writes it onto the object after
+	// applying, so it is never in the manifest and would show as a difference
+	// on every managed object in the cluster.
+	TrackingAnnotation = "argocd.argoproj.io/tracking-id"
 
-	// instanceLabel is Argo CD's default tracking method, and also the label
+	// InstanceLabel is Argo CD's default tracking method, and also the label
 	// the Kubernetes recommended-labels convention tells every tool to set.
 	// Helm sets it on everything it installs. Finding it therefore raises a
 	// candidate and never a conclusion.
-	instanceLabel = "app.kubernetes.io/instance"
+	//
+	// It is exported for the same reason as the annotation above: a comparison
+	// against Git meets it on the live object and never in the repository.
+	InstanceLabel = "app.kubernetes.io/instance"
 )
 
 // Ownership answers where one live object's desired state lives.
@@ -114,10 +122,10 @@ func resolveOwnership(
 	// Application that never created it, and the identity inside the value is
 	// how that is caught.
 	tracked := ""
-	if name, claimed, ok := parseTrackingID(obj.GetAnnotations()[trackingAnnotation]); ok && claimed == id {
+	if name, claimed, ok := parseTrackingID(obj.GetAnnotations()[TrackingAnnotation]); ok && claimed == id {
 		tracked = name
 	}
-	labelled := obj.GetLabels()[instanceLabel]
+	labelled := obj.GetLabels()[InstanceLabel]
 
 	// Applications are ordered so that two with equal claims resolve the same
 	// way on every call. A drawer that names a different Application each time

@@ -11,7 +11,7 @@ import {
 } from 'vue'
 
 import LogButton from '@/components/logs/LogButton.vue'
-import { api, events, message, on } from '@/api'
+import { api, copyToClipboard, events, message, on } from '@/api'
 import { highlight, parseAnsi, stripAnsi } from '@/composables/ansi'
 import type { Segment } from '@/composables/ansi'
 import { useUIStore } from '@/stores/ui'
@@ -247,16 +247,15 @@ function resume() {
 }
 
 async function copy() {
-  try {
-    await navigator.clipboard.writeText(shown.value.map(text).join('\n'))
-    copied.value = true
-    window.clearTimeout(copiedTimer)
-    copiedTimer = window.setTimeout(() => {
-      copied.value = false
-    }, 1500)
-  } catch {
+  if (!(await copyToClipboard(shown.value.map(text).join('\n')))) {
     ui.say('Could not copy to the clipboard.', 'bad')
+    return
   }
+  copied.value = true
+  window.clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(() => {
+    copied.value = false
+  }, 1500)
 }
 
 /**
@@ -318,7 +317,7 @@ watch(() => [props.pod, props.namespace], async () => {
     class="flex h-full min-h-0 flex-col"
     :class="expanded ? 'fixed inset-0 z-40 bg-surface-0 pt-8' : ''"
   >
-    <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-4 py-2">
+    <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-4 py-4">
       <LogButton :label="follow ? 'Stop following' : 'Follow'" :active="follow" @click="follow = !follow">
         <svg viewBox="0 0 16 16" class="size-3.5" fill="none" aria-hidden="true">
           <path

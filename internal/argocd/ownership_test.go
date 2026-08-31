@@ -12,7 +12,7 @@ import (
 
 func TestATrackingAnnotationNamesTheApplication(t *testing.T) {
 	deployment := object("apps/v1", "Deployment", "payment", "payment-api", nil, map[string]string{
-		trackingAnnotation: "payment-api:apps/Deployment:payment/payment-api",
+		TrackingAnnotation: "payment-api:apps/Deployment:payment/payment-api",
 	})
 	apps := []*unstructured.Unstructured{argoApp("argocd", "payment-api", gitSpec("apps/payment/prod"), nil)}
 
@@ -31,7 +31,7 @@ func TestATrackingAnnotationAboutAnotherObjectIsIgnored(t *testing.T) {
 	// names an Application that never created it. The identity inside the
 	// value is the only thing that catches that, so it has to be checked.
 	deployment := object("apps/v1", "Deployment", "payment", "payment-api", nil, map[string]string{
-		trackingAnnotation: "payment-api:apps/Deployment:payment/something-else",
+		TrackingAnnotation: "payment-api:apps/Deployment:payment/something-else",
 	})
 	apps := []*unstructured.Unstructured{argoApp("argocd", "payment-api", gitSpec("apps/payment/prod"), nil)}
 
@@ -47,7 +47,7 @@ func TestAnInstanceLabelAloneIsOnlyACandidate(t *testing.T) {
 	// sets on everything it installs. A resource carrying it beside an
 	// Application of the same name may have nothing to do with Argo CD.
 	deployment := object("apps/v1", "Deployment", "payment", "payment-api",
-		map[string]string{instanceLabel: "payment-api"}, nil)
+		map[string]string{InstanceLabel: "payment-api"}, nil)
 	apps := []*unstructured.Unstructured{argoApp("argocd", "payment-api", gitSpec("apps/payment/prod"), nil)}
 
 	out := resolveOwnership(deploymentRef(), deployment, apps)
@@ -82,7 +82,7 @@ func TestACoreObjectIsMatchedOnTheEmptyGroup(t *testing.T) {
 	// not a group called "v1". Getting this wrong makes every ConfigMap and
 	// Service in the cluster look unmanaged.
 	configMap := object("v1", "ConfigMap", "payment", "payment-config", nil, map[string]string{
-		trackingAnnotation: "payment-api:/ConfigMap:payment/payment-config",
+		TrackingAnnotation: "payment-api:/ConfigMap:payment/payment-config",
 	})
 	apps := []*unstructured.Unstructured{
 		argoApp("argocd", "payment-api", gitSpec("apps/payment/prod"), map[string]any{
@@ -256,7 +256,7 @@ func TestAnApplicationSetGeneratedApplicationSaysSo(t *testing.T) {
 	app.SetOwnerReferences(ownerReference("ApplicationSet", "payment-per-env"))
 
 	deployment := object("apps/v1", "Deployment", "payment", "payment-api", nil, map[string]string{
-		trackingAnnotation: "payment-api:apps/Deployment:payment/payment-api",
+		TrackingAnnotation: "payment-api:apps/Deployment:payment/payment-api",
 	})
 
 	out := resolveOwnership(deploymentRef(), deployment, []*unstructured.Unstructured{app})
@@ -271,7 +271,7 @@ func TestAnApplicationOutsideTheControlPlaneNamespaceIsMatched(t *testing.T) {
 	// "Applications in any namespace" names the instance `namespace_name`, and
 	// an installation using it would otherwise look like it manages nothing.
 	deployment := object("apps/v1", "Deployment", "payment", "payment-api", nil, map[string]string{
-		trackingAnnotation: "team-payment_payment-api:apps/Deployment:payment/payment-api",
+		TrackingAnnotation: "team-payment_payment-api:apps/Deployment:payment/payment-api",
 	})
 	apps := []*unstructured.Unstructured{argoApp("team-payment", "payment-api", gitSpec("apps/payment/prod"), nil)}
 

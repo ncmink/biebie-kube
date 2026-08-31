@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
+import { copyToClipboard } from '@/api'
 import { useUIStore } from '@/stores/ui'
 import type { DataEntry } from '@/types'
 
@@ -34,13 +35,12 @@ async function copyValue(entry: DataEntry, event: Event) {
   if (!isOpen(entry.key)) return
   const input = event.currentTarget as HTMLInputElement
   input.select()
-  try {
-    await navigator.clipboard.writeText(entry.value)
-    copied.value = entry.key
-    ui.say(`Copied ${entry.key}.`)
-  } catch {
+  if (!(await copyToClipboard(entry.value))) {
     ui.say('Could not copy to the clipboard.', 'bad')
+    return
   }
+  copied.value = entry.key
+  ui.say(`Copied ${entry.key}.`)
 }
 </script>
 

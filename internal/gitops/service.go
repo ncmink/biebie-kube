@@ -21,6 +21,7 @@ import (
 	"path"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -57,20 +58,32 @@ func NewService(clusters *cluster.Manager, argo *argocd.Service, cache *git.Cach
 	return &Service{clusters: clusters, argo: argo, cache: cache}
 }
 
-// Locate looks for the document that declares one object.
+// Compare reads the manifest that declares one object and holds it against the
+// object itself.
+//
+// Locating and comparing are one call rather than two on purpose. A branch
+// moves, and asking for the manifest and then asking for the difference would
+// be two reads of it: the panel could show a file from one commit beside a
+// difference computed against another, and nothing on screen would say so.
+// Done together, both answers come from the commit resolved once at the top.
 //
 // It is deliberately not called when a drawer opens. Ownership costs a list
 // and can be asked for freely; this costs a clone the first time a repository
 // is seen, so it happens when somebody asks for it and not before.
-func (s *Service) Locate(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.ManifestSearch, error) {
-	out := domain.ManifestSearch{Ref: ref, Certainty: domain.ManifestUnknown}
+func (s *Service) Compare(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.SourceState, error) {
+	out := domain.SourceState{
+		Ref:    ref,
+		Search: domain.ManifestSearch{Ref: ref, Certainty: domain.ManifestUnknown},
+	}
 
 	ownership, err := s.argo.Ownership(ctx, clusterID, ref)
 	if err != nil {
 		return out, err
 	}
 	if !ownership.Confidence.Managed() {
-		out.Reason = ownership.Reason
+		out.Search.Reason = ownership.Reason
+		out.Comparison = unavailable(domain.BlockerUnmanaged,
+			"No Application declares this object, so there is no source state to compare it with.")
 		return out, nil
 	}
 
@@ -79,23 +92,33 @@ func (s *Service) Locate(ctx context.Context, clusterID string, ref domain.Resou
 		// Helm, Kustomize, a plugin, a chart from a Helm repository: the
 		// certainty already on the source says why there is no file better
 		// than a search that came back empty would.
-		out.Certainty, out.Reason = nothingToSearch(ownership.Sources)
+		out.Search.Certainty, out.Search.Reason = nothingToSearch(ownership.Sources)
+		out.Comparison = unavailable(domain.BlockerGenerated, out.Search.Reason)
 		return out, nil
 	}
 
-	want, err := s.identify(ctx, clusterID, ref)
+	live, err := s.read(ctx, clusterID, ref)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// A deleted object is not an object that matches its manifest, and
+			// treating the two the same would be the most misleading thing
+			// this panel could do.
+			out.Search.Reason = "This object no longer exists in the cluster."
+			out.Comparison = unavailable(domain.BlockerGone,
+				"This object no longer exists in the cluster, so there is nothing to compare the manifest with.")
+			return out, nil
+		}
 		return out, err
 	}
 
 	// The tree was known before the search began and stays known whatever it
 	// turns up. Failing to find a file does not unlearn the directory.
-	out.Certainty = domain.ManifestTree
+	out.Search.Certainty = domain.ManifestTree
 
 	var found []domain.ManifestLocation
 	var refusal string
 	for _, source := range trees {
-		result, err := s.search(ctx, source, want)
+		result, err := s.search(ctx, source, live.identity)
 		if err != nil {
 			// A repository that cannot be read is an answer rather than an
 			// error: the drawer keeps everything ownership established and
@@ -105,14 +128,21 @@ func (s *Service) Locate(ctx context.Context, clusterID string, ref domain.Resou
 			}
 			continue
 		}
-		if out.Commit == "" {
-			out.Commit = result.commit
+		if out.Search.Commit == "" {
+			out.Search.Commit = result.commit
 		}
-		out.Scanned += result.scanned
-		out.Truncated = out.Truncated || result.truncated
+		out.Search.Scanned += result.scanned
+		out.Search.Truncated = out.Search.Truncated || result.truncated
 		found = append(found, result.locations...)
 	}
 
+	out.Search = describeSearch(out.Search, found, refusal)
+	out.Comparison = compareAgainst(out.Search, live, refusal)
+	return out, nil
+}
+
+// describeSearch settles what the search found into a sentence.
+func describeSearch(out domain.ManifestSearch, found []domain.ManifestLocation, refusal string) domain.ManifestSearch {
 	switch {
 	case len(found) == 1:
 		out.Certainty = domain.ManifestExact
@@ -139,7 +169,102 @@ func (s *Service) Locate(ctx context.Context, clusterID string, ref domain.Resou
 			"Nothing in the %d files under this path declares this object. It may be rendered from something this search does not read, or committed elsewhere.",
 			out.Scanned)
 	}
-	return out, nil
+	return out
+}
+
+// compareAgainst holds the located manifest against the live object.
+//
+// Every way this can decline is a different situation with a different thing
+// to do about it, so each gets its own blocker rather than one "comparison
+// failed". None of them is an error: a Helm Application will never have a file
+// to compare, and colouring that red would teach people to ignore the panel.
+func compareAgainst(search domain.ManifestSearch, live *subject, refusal string) domain.StateComparison {
+	switch {
+	case search.Certainty == domain.ManifestGenerated || search.Certainty == domain.ManifestUnknown:
+		// Compare returns before reaching here for these, to avoid the clone.
+		// The case is kept so the decision does not depend on which caller
+		// asked: a certainty that names no file cannot be compared, wherever
+		// that is noticed.
+		return unavailable(domain.BlockerGenerated, search.Reason)
+	case len(search.Candidates) > 1:
+		return unavailable(domain.BlockerAmbiguous,
+			"More than one document declares this object, so there is no single source state to compare against.")
+	case refusal != "" && search.Located == nil:
+		return unavailable(domain.BlockerRepository, refusal)
+	case search.Located == nil:
+		return unavailable(domain.BlockerNotLocated, search.Reason)
+	}
+
+	source, err := canonicalManifest([]byte(search.Located.Content))
+	if err != nil {
+		return unavailable(domain.BlockerManifestInvalid,
+			fmt.Sprintf("%s could not be read as a Kubernetes object: %v", search.Located.Path, err))
+	}
+	current, err := canonicalObject(live.object.Object)
+	if err != nil {
+		return unavailable(domain.BlockerManifestInvalid, err.Error())
+	}
+
+	// Two passes with two different jobs. Normalisation erases differences
+	// that were never differences, so a defaulted field never becomes a row at
+	// all; classification explains the rows that are left. Hiding a
+	// semantically equal field in a disclosure instead of normalising it away
+	// would still be showing the reader something untrue, only more quietly.
+	normalise(current, source)
+	out := tally(classify(compare(source, current, live.sensitive)))
+
+	switch {
+	case out.Meaningful > 0:
+		out.State = domain.ComparisonDiffers
+		out.Reason = fmt.Sprintf("%d %s between the source manifest and the object in the cluster.",
+			out.Meaningful, plural(out.Meaningful, "difference", "differences"))
+	case out.SystemManaged > 0:
+		// Not "identical". An object carrying its controller's revision
+		// annotation does not match its manifest and never will, and a panel
+		// that claims it does spends a reader's trust on a detail.
+		out.State = domain.ComparisonEqual
+		out.Reason = fmt.Sprintf(
+			"Nothing differs except %d %s Kubernetes or Argo CD writes onto the object itself.",
+			out.SystemManaged, plural(out.SystemManaged, "field", "fields"))
+	default:
+		out.State = domain.ComparisonEqual
+		out.Reason = "Every field this comparison reads matches the source manifest."
+	}
+	return out
+}
+
+// tally sorts meaningful differences to the front and counts both classes.
+func tally(differences []domain.StateDifference) domain.StateComparison {
+	out := domain.StateComparison{}
+	ordered := make([]domain.StateDifference, 0, len(differences))
+
+	for _, difference := range differences {
+		if difference.Class == domain.DifferenceMeaningful {
+			out.Meaningful++
+			ordered = append(ordered, difference)
+		}
+		out.Redacted = out.Redacted || difference.Redacted
+	}
+	for _, difference := range differences {
+		if difference.Class != domain.DifferenceMeaningful {
+			out.SystemManaged++
+			ordered = append(ordered, difference)
+		}
+	}
+
+	out.Differences = ordered
+	return out
+}
+
+func unavailable(blocker domain.ComparisonBlocker, reason string) domain.StateComparison {
+	return domain.StateComparison{State: domain.ComparisonUnavailable, Blocker: blocker, Reason: reason}
+}
+
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+	return many
 }
 
 // result is one repository's contribution to a search.
@@ -221,22 +346,36 @@ func scan(ctx context.Context, tree reader, source domain.GitSource, entries []g
 	return out
 }
 
-// identify reads the object to learn the kind and group a manifest names it by.
+// subject is the live object a comparison is about.
+//
+// The object is carried alongside its identity because both come from one
+// read. The search needs the identity to match documents and the comparison
+// needs the object itself, and fetching it twice for one button press would be
+// a second round trip for something already in hand.
+type subject struct {
+	object    *unstructured.Unstructured
+	identity  identity
+	sensitive bool
+}
+
+// read fetches the object and works out the name a manifest calls it by.
 //
 // The catalogue knows a kind as its plural resource name — "deployments" —
 // because that is what the API server is addressed with. A manifest says
 // `kind: Deployment`, and nothing in the catalogue carries that spelling, so
-// the object itself is asked. It is a second read of something the ownership
-// call above already fetched, which is a fair price beside the clone this is
-// about to do.
-func (s *Service) identify(ctx context.Context, clusterID string, ref domain.ResourceRef) (identity, error) {
+// the object itself is asked.
+//
+// This is one GET of one object. The ownership call above reads the same
+// object for its own purposes, which is one more round trip than strictly
+// necessary and nothing at all beside the clone that follows.
+func (s *Service) read(ctx context.Context, clusterID string, ref domain.ResourceRef) (*subject, error) {
 	info, ok := s.clusters.LookupKind(clusterID, ref.Kind)
 	if !ok {
-		return identity{}, fmt.Errorf("unknown resource type %q", ref.Kind)
+		return nil, fmt.Errorf("unknown resource type %q", ref.Kind)
 	}
 	client, err := s.clusters.Client(clusterID)
 	if err != nil {
-		return identity{}, err
+		return nil, err
 	}
 
 	resource := client.Dynamic.Resource(kube.GVRFor(info.Group, info.Version, info.Resource))
@@ -247,18 +386,25 @@ func (s *Service) identify(ctx context.Context, clusterID string, ref domain.Res
 		object, err = resource.Get(ctx, ref.Name, metav1.GetOptions{})
 	}
 	if err != nil {
-		return identity{}, fmt.Errorf("read %s: %w", ref.Name, err)
+		return nil, fmt.Errorf("read %s: %w", ref.Name, err)
 	}
 
 	group := ""
 	if before, _, found := strings.Cut(object.GetAPIVersion(), "/"); found {
 		group = before
 	}
-	return identity{
-		group:     group,
-		kind:      object.GetKind(),
-		namespace: object.GetNamespace(),
-		name:      object.GetName(),
+	return &subject{
+		object: object,
+		// Sensitive is the catalogue's existing word for a kind whose values
+		// stay hidden until asked for, and it is what keeps the rule about
+		// Secrets in one place rather than spelled out again here.
+		sensitive: info.Sensitive,
+		identity: identity{
+			group:     group,
+			kind:      object.GetKind(),
+			namespace: object.GetNamespace(),
+			name:      object.GetName(),
+		},
 	}, nil
 }
 

@@ -18,7 +18,11 @@ type GitOpsService struct{ core *Core }
 
 func (s *GitOpsService) ServiceName() string { return "GitOpsService" }
 
-// LocateManifest looks for the document in Git that declares one live object.
+// CompareWithSource finds the manifest in Git that declares one live object and
+// holds the two against each other.
+//
+// Source rather than desired state: what this reads is a file, and a rendering
+// step or a pipeline may sit between that file and what Argo CD applied.
 //
 // This is the expensive half of the GitOps panel and is never called when a
 // drawer opens: the first read of a repository clones it. It runs when
@@ -26,12 +30,17 @@ func (s *GitOpsService) ServiceName() string { return "GitOpsService" }
 // what it assumes — a directory whose manifests are rendered has no file to
 // name, and two files declaring one name is a state of the repository rather
 // than a choice this code should make.
-func (s *GitOpsService) LocateManifest(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.ManifestSearch, error) {
+//
+// Both answers come back together because they must come from the same commit.
+// Two calls would be two reads of a branch that moves, and the panel could end
+// up showing a file from one commit beside a difference computed against
+// another with nothing on screen saying so.
+func (s *GitOpsService) CompareWithSource(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.SourceState, error) {
 	if s.core.gitops == nil {
 		// A machine that would not name a cache directory has no repository
 		// mirror to read. Everything else in the panel still works.
-		return domain.ManifestSearch{Ref: ref}, errors.New("this machine has no cache directory for repository mirrors")
+		return domain.SourceState{Ref: ref}, errors.New("this machine has no cache directory for repository mirrors")
 	}
-	search, err := s.core.gitops.Locate(ctx, clusterID, ref)
-	return search, describe(err)
+	state, err := s.core.gitops.Compare(ctx, clusterID, ref)
+	return state, describe(err)
 }

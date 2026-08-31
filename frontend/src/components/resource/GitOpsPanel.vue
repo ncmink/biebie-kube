@@ -1,30 +1,52 @@
 <script setup lang="ts">
 /**
- * The drawer's answer to "where does this object's desired state live?".
+ * The drawer's answer to "what does Git say this object should be, and does the
+ * cluster agree?".
  *
  * The panel is written to be believed only as far as it should be. Argo CD can
- * say with certainty that it manages an object, and it can say almost nothing
- * about which file in a repository declares it, and those are shown as two
- * different statements rather than blurred into one confident line.
+ * say with certainty that it manages an object, it can say almost nothing about
+ * which file in a repository declares it, and the difference between that file
+ * and the running object is a third statement again. They are shown as separate
+ * claims rather than blurred into one confident line.
+ *
+ * Source rather than desired, throughout. What this compares against is a file,
+ * and a Helm rendering or a pipeline that rewrites an image may sit between that
+ * file and what Argo CD applied.
+ *
+ * No Kubernetes knowledge lives here. Whether `replicas: 1` is a default, which
+ * fields a controller owns, what to call a path — all of it is decided in Go,
+ * where it can be tested, and arrives on each difference as a class, a label and
+ * a reason.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { api, message } from '@/api'
-import { ManifestCertainty, OwnershipConfidence } from '@/types'
-import type { GitSource, ManifestSearch, ResourceOwnership, ResourceRef } from '@/types'
+import { api, copyToClipboard, message } from '@/api'
+import { useUIStore } from '@/stores/ui'
+import {
+  ComparisonState,
+  DifferenceClass,
+  DifferenceKind,
+  ManifestCertainty,
+  OwnershipConfidence,
+} from '@/types'
+import type { SourceState, GitSource, ResourceOwnership, ResourceRef } from '@/types'
 
 const props = defineProps<{ clusterId: string; resource: ResourceRef }>()
 
 const router = useRouter()
+const ui = useUIStore()
 
 const ownership = ref<ResourceOwnership | null>(null)
 const error = ref('')
 
-const search = ref<ManifestSearch | null>(null)
+const sourceState = ref<SourceState | null>(null)
 const searching = ref(false)
 const searchError = ref('')
 const contentOpen = ref(false)
+const diffOpen = ref(false)
+const copied = ref(false)
+let copiedTimer = 0
 
 // Clicking down a list starts reads that finish out of order, and only the
 // newest one is allowed to write its answer.
@@ -33,12 +55,14 @@ let token = 0
 async function load() {
   const mine = ++token
   error.value = ''
-  // A search belongs to the object it was run for. Carrying it to the next
-  // row would name a file as somewhere else's desired state.
-  search.value = null
+  // A comparison belongs to the object it was run for. Carrying it to the next
+  // row would name a file as somewhere else's source of truth.
+  sourceState.value = null
   searchError.value = ''
   searching.value = false
   contentOpen.value = false
+  diffOpen.value = false
+  clearCopied()
   try {
     const found = await api.gitOwnership(props.clusterId, props.resource)
     if (mine !== token) return
@@ -118,35 +142,166 @@ const searchable = computed(
     sources.value.some((source) => source.certainty === ManifestCertainty.ManifestTree),
 )
 
+const search = computed(() => sourceState.value?.search ?? null)
+const comparison = computed(() => sourceState.value?.comparison ?? null)
 const located = computed(() => search.value?.located ?? null)
 const candidates = computed(() => search.value?.candidates ?? [])
+
+// Two lists rather than one filtered at render time. The whole point of the
+// classification is that these are answers to different questions, and putting
+// them in one list with a badge on some of them would be the flat dump again.
+const meaningful = computed(() =>
+  (comparison.value?.differences ?? []).filter(
+    (difference) => difference.class === DifferenceClass.DifferenceMeaningful,
+  ),
+)
+const systemManaged = computed(() =>
+  (comparison.value?.differences ?? []).filter(
+    (difference) => difference.class !== DifferenceClass.DifferenceMeaningful,
+  ),
+)
+
+// The file name is what somebody is looking for; the directory is how to find
+// it again later. Splitting them lets the name lead and the path sit under it.
+const manifestName = computed(() => located.value?.path.split('/').pop() ?? '')
+const manifestDirectory = computed(() => {
+  const path = located.value?.path ?? ''
+  const cut = path.lastIndexOf('/')
+  return cut < 0 ? '' : path.slice(0, cut + 1)
+})
 
 // Seven characters is how a commit is written down and said out loud, and the
 // whole hash is on the clipboard of nobody who wanted it here.
 const commit = computed(() => search.value?.commit?.slice(0, 7) ?? '')
 
 /**
- * locate reads the repository.
+ * compare reads the repository and holds the manifest against the object.
  *
  * Deliberately behind a press rather than run when the drawer opens: the first
  * read of a repository clones it, and doing that to every row somebody clicks
  * through would make the list feel broken.
  */
-async function locate() {
+async function compare() {
   const mine = token
   searching.value = true
   searchError.value = ''
   contentOpen.value = false
+  diffOpen.value = false
   try {
-    const found = await api.locateManifest(props.clusterId, props.resource)
+    const found = await api.sourceState(props.clusterId, props.resource)
     if (mine !== token) return
-    search.value = found
+    sourceState.value = found
   } catch (err) {
     if (mine !== token) return
     searchError.value = message(err)
-    search.value = null
+    sourceState.value = null
   } finally {
     if (mine === token) searching.value = false
+  }
+}
+
+/**
+ * summary is the one line the comparison leads with.
+ *
+ * It counts only what the reader has to act on. The counting is the backend's,
+ * not this component's: whether `replicas: 1` is a Kubernetes default is a
+ * question about Kubernetes, and answering it here would put Kubernetes
+ * semantics somewhere no test can reach them.
+ *
+ * "Unavailable" is deliberately not a failure colour. A Helm Application will
+ * never have a file to compare against, and a panel that shows that in red
+ * teaches people that it is broken.
+ */
+const summary = computed(() => {
+  const result = comparison.value
+  switch (result?.state) {
+    case ComparisonState.ComparisonEqual:
+      // Not "identical". An object carrying its own controller's annotations
+      // does not match its manifest, and the wording says only what is true.
+      return {
+        label: result.systemManaged ? 'No meaningful differences' : 'No differences',
+        tone: 'text-ok',
+      }
+    case ComparisonState.ComparisonDiffers:
+      return {
+        label: `${result.meaningful} meaningful ${
+          result.meaningful === 1 ? 'difference' : 'differences'
+        }`,
+        tone: 'text-warn',
+      }
+    default:
+      return { label: 'Unavailable', tone: 'text-ink-muted' }
+  }
+})
+
+/**
+ * disagreement fires when Argo CD and this comparison do not tell the same
+ * story.
+ *
+ * They are allowed to disagree. Argo CD renders the source and applies its own
+ * normalisation and ignore rules; this reads one file and compares fields. When
+ * they differ, both facts are shown and neither is corrected, because assuming
+ * one of them is wrong is how a panel starts lying.
+ */
+const disagreement = computed(() => {
+  const sync = app.value?.sync
+  const state = comparison.value?.state
+  if (!sync || !state || state === ComparisonState.ComparisonUnavailable) return ''
+  if (sync === 'Synced' && state === ComparisonState.ComparisonDiffers) {
+    return 'Argo CD reports this Application as synced. It renders and normalises its sources differently, so the two can disagree.'
+  }
+  if (sync === 'OutOfSync' && state === ComparisonState.ComparisonEqual) {
+    return 'Argo CD reports this Application as out of sync. The difference may be in another object it manages, or in a rule this comparison does not apply.'
+  }
+  return ''
+})
+
+/**
+ * copySource puts the manifest on the clipboard.
+ *
+ * The whole document, exactly as the repository has it, because the reason to
+ * copy a manifest is to paste it somewhere that has to parse it. What is on
+ * screen is already the one located document rather than the whole file, so
+ * there is nothing to trim here.
+ *
+ * The button also closes over nothing: it reads the located manifest at the
+ * moment it is pressed, so a comparison that finished while somebody was
+ * reaching for it cannot put the previous object's manifest on the clipboard.
+ */
+async function copySource() {
+  const content = located.value?.content
+  if (!content) return
+  if (!(await copyToClipboard(content))) {
+    ui.say('Could not copy to the clipboard.', 'bad')
+    return
+  }
+  copied.value = true
+  window.clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(clearCopied, 1500)
+}
+
+function clearCopied() {
+  window.clearTimeout(copiedTimer)
+  copied.value = false
+}
+
+onUnmounted(clearCopied)
+
+/**
+ * side says where a one-sided difference lives.
+ *
+ * "Only in the cluster" and no more. Whether it got there by drift, by a
+ * webhook or by a controller is not something this comparison can know, and a
+ * card that said "someone changed the cluster" would be inventing a culprit.
+ */
+function side(kind: DifferenceKind): string {
+  switch (kind) {
+    case DifferenceKind.DifferenceAddedInLive:
+      return 'Only in the cluster'
+    case DifferenceKind.DifferenceMissingInLive:
+      return 'Only in the source'
+    default:
+      return ''
   }
 }
 
@@ -241,11 +396,11 @@ function openApplication() {
         <button
           class="mt-3 rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted hover:text-ink disabled:cursor-default disabled:text-ink-faint"
           :disabled="searching"
-          @click="locate"
+          @click="compare"
         >
           <template v-if="searching">Reading the repository…</template>
-          <template v-else-if="search || searchError">Look again</template>
-          <template v-else>Locate manifest</template>
+          <template v-else-if="sourceState || searchError">Compare again</template>
+          <template v-else>Compare with Git</template>
         </button>
 
         <p v-if="searching" class="mt-2 text-[11px] leading-relaxed text-ink-faint">
@@ -258,33 +413,167 @@ function openApplication() {
         </p>
 
         <div v-else-if="located" class="mt-3 rounded-lg border border-line px-3 py-2.5">
-          <dl class="space-y-2 text-xs">
-            <div class="grid grid-cols-[7.5rem_1fr] gap-2">
-              <dt class="text-ink-faint">File</dt>
-              <dd class="break-all font-mono text-ink">{{ located.path }}</dd>
-            </div>
-            <div v-if="located.document > 0" class="grid grid-cols-[7.5rem_1fr] gap-2">
-              <dt class="text-ink-faint">Document</dt>
-              <dd class="text-ink">{{ located.document + 1 }} in that file</dd>
-            </div>
-            <div v-if="commit" class="grid grid-cols-[7.5rem_1fr] gap-2">
-              <dt class="text-ink-faint">Read at</dt>
-              <dd class="font-mono text-ink">{{ commit }}</dd>
-            </div>
-          </dl>
+          <!--
+            Where the file is, said quietly. It matters for reproducibility and
+            it is not what somebody opened this panel to find out, so it leads
+            with the file name and puts the directory and the commit under it
+            at the size of a footnote.
+          -->
+          <p class="text-[10px] uppercase tracking-wider text-ink-faint">Source</p>
+          <p class="mt-1 break-all font-mono text-xs text-ink">{{ manifestName }}</p>
+          <p class="mt-0.5 break-all font-mono text-[10px] text-ink-faint">
+            {{ manifestDirectory }}<span v-if="commit"> @ {{ commit }}</span>
+            <span v-if="located.document > 0"> · document {{ located.document + 1 }}</span>
+          </p>
 
-          <button class="mt-2 text-xs text-brand hover:underline" @click="contentOpen = !contentOpen">
-            {{ contentOpen ? 'Hide manifest' : 'Show manifest' }}
+          <div v-if="comparison" class="mt-3 border-t border-line pt-3">
+            <p class="text-[10px] uppercase tracking-wider text-ink-faint">Source vs Live</p>
+            <p class="mt-1 text-xs font-medium" :class="summary.tone">{{ summary.label }}</p>
+
+            <p v-if="disagreement" class="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+              {{ disagreement }}
+            </p>
+
+            <ul v-if="meaningful.length" class="mt-2.5 space-y-2">
+              <li
+                v-for="difference in meaningful"
+                :key="difference.path"
+                class="rounded-md bg-surface-2 px-2.5 py-2"
+              >
+                <p class="text-[11px] font-medium text-ink">
+                  {{ difference.label || difference.path }}
+                </p>
+                <p
+                  v-if="difference.label && difference.subject"
+                  class="break-all font-mono text-[10px] text-ink-faint"
+                >
+                  {{ difference.subject }}
+                </p>
+
+                <p v-if="difference.redacted" class="mt-1.5 text-[11px] text-ink-muted">
+                  Value differs. This kind's values are not shown here.
+                </p>
+
+                <template v-else-if="side(difference.kind)">
+                  <p class="mt-1.5 text-[10px] uppercase tracking-wider text-ink-faint">
+                    {{ side(difference.kind) }}
+                  </p>
+                  <p class="break-all font-mono text-[11px] text-ink-muted">
+                    {{ difference.source || difference.live }}
+                  </p>
+                </template>
+
+                <template v-else>
+                  <p class="mt-1.5 text-[10px] uppercase tracking-wider text-ink-faint">Source</p>
+                  <p class="break-all font-mono text-[11px] text-ink-muted">
+                    {{ difference.source }}
+                  </p>
+                  <p class="mt-1 text-[10px] uppercase tracking-wider text-ink-faint">Live</p>
+                  <p class="break-all font-mono text-[11px] text-ink-muted">{{ difference.live }}</p>
+                </template>
+              </li>
+            </ul>
+
+            <!--
+              Kept, not discarded. Somebody working out why a rollout happened
+              wants the revision annotation, and it is one press away.
+            -->
+            <template v-if="systemManaged.length">
+              <button
+                class="mt-2.5 text-xs text-brand hover:underline"
+                @click="diffOpen = !diffOpen"
+              >
+                {{ diffOpen ? 'Hide' : 'Show' }} {{ systemManaged.length }} system-managed
+                {{ systemManaged.length === 1 ? 'difference' : 'differences' }}
+              </button>
+
+              <ul v-if="diffOpen" class="mt-2 space-y-1.5">
+                <li
+                  v-for="difference in systemManaged"
+                  :key="difference.path"
+                  class="rounded-md bg-surface-2 px-2.5 py-1.5"
+                >
+                  <p class="text-[11px] text-ink-muted">
+                    {{ difference.label || difference.path }}
+                    <span v-if="difference.subject" class="break-all font-mono text-[10px]">
+                      {{ difference.subject }}
+                    </span>
+                  </p>
+                  <p v-if="!difference.redacted" class="break-all font-mono text-[11px] text-ink">
+                    {{ difference.live || difference.source }}
+                  </p>
+                  <p v-if="difference.reason" class="mt-0.5 text-[10px] text-ink-faint">
+                    {{ difference.reason }}
+                  </p>
+                </li>
+              </ul>
+            </template>
+          </div>
+
+          <button
+            class="mt-2.5 block text-xs text-brand hover:underline"
+            @click="contentOpen = !contentOpen"
+          >
+            {{ contentOpen ? 'Hide source YAML' : 'View source YAML' }}
           </button>
 
-          <pre
-            v-if="contentOpen"
-            class="mt-2 max-h-80 overflow-auto rounded-md bg-surface-2 p-2.5 font-mono text-[11px] leading-relaxed text-ink-muted"
-          >{{ located.content }}</pre>
+          <!--
+            The copy sits on the manifest rather than beside the disclosure that
+            opens it. A button next to "View source YAML" has to say what it
+            copies; one in the corner of the thing itself does not.
+          -->
+          <div v-if="contentOpen" class="relative mt-2">
+            <pre
+              class="max-h-80 overflow-auto rounded-md bg-surface-2 py-2.5 pl-2.5 pr-10 font-mono text-[11px] leading-relaxed text-ink-muted"
+            >{{ located.content }}</pre>
+
+            <button
+              class="absolute right-1.5 top-1.5 rounded-md border border-line bg-surface-2 p-1.5 hover:text-ink"
+              :class="copied ? 'text-ok' : 'text-ink-faint'"
+              :title="copied ? 'Copied' : 'Copy this manifest'"
+              :aria-label="copied ? 'Copied' : 'Copy this manifest'"
+              @click="copySource"
+            >
+              <svg
+                v-if="copied"
+                viewBox="0 0 16 16"
+                class="size-3.5"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3.4 8.4 6.4 11.4 12.6 5.2"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <svg v-else viewBox="0 0 16 16" class="size-3.5" fill="none" aria-hidden="true">
+                <rect
+                  x="5.6"
+                  y="5.6"
+                  width="7.9"
+                  height="7.9"
+                  rx="1.6"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                />
+                <path
+                  d="M10.4 5.6V4a1.6 1.6 0 0 0-1.6-1.6H4A1.6 1.6 0 0 0 2.4 4v4.8A1.6 1.6 0 0 0 4 10.4h1.6"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
 
           <p v-if="contentOpen" class="mt-2 text-[11px] leading-relaxed text-ink-faint">
-            This is what the repository says, not what the cluster is running. Nothing here writes
-            back.
+            This is what the repository says, not what the cluster is running, and not necessarily
+            what Argo CD applied — a rendering step or a pipeline may sit between them. Nothing here
+            writes back.
           </p>
         </div>
 

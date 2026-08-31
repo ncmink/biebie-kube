@@ -565,6 +565,237 @@ nobody can check afterwards is not much of an answer.
 
 ---
 
+## Source vs Live
+
+Lens shows what is running. Once the manifest is located, Biebie Kube can also
+show what Git says should be running, and — more usefully — which of the
+differences between them anybody needs to do something about:
+
+```text
+Source vs Live
+⚠ 1 meaningful difference
+
+Container image
+super-auto-develop
+
+SOURCE  super-auto-develop
+LIVE    708607833758.dkr.ecr.…/super-auto-develop:6520
+
+Show 2 system-managed differences
+```
+
+Source, not desired. What this reads is a file in a repository, and between
+that file and the running object there may be a Helm rendering, a Kustomize
+build, a pipeline that rewrites an image reference, or an Argo CD parameter
+override. The rendered desired state Argo CD actually applied is something this
+application does not have, and naming the feature after it would be claiming a
+certainty that has to be earned.
+
+Locating and comparing happen in one call, because they must come from the same
+commit: two calls would be two reads of a branch that moves, and the panel could
+show a file from one commit beside a difference computed against another with
+nothing on screen saying so.
+
+### A comparison nobody reads is worse than no comparison
+
+The first version of this compared honestly and was unusable. A perfectly
+ordinary Deployment produced ten differences, of which one mattered:
+
+```text
+metadata.annotations                          {"deployment.kubernetes.io/revision":"22"}
+metadata.labels.argocd.argoproj.io/instance   ak-super-auto
+spec.progressDeadlineSeconds                  600
+spec.replicas                                 1
+spec.revisionHistoryLimit                     10
+spec.strategy                                 …
+spec.template.spec.containers[…].image        super-auto-develop → …:6520
+spec.template.spec.schedulerName              default-scheduler
+spec.template.spec.securityContext            {}
+spec.template.spec.volumes[…].hostPath.type   ""
+```
+
+Nine of those rows are Kubernetes describing itself, and the tenth is an image
+nobody can account for sitting in the middle of them looking identical. A reader
+learns within a day that this list is noise, and after that the one row that
+matters is invisible for exactly as long as it takes for it to cause an
+incident.
+
+Two separate things fix it, and keeping them separate is the point.
+
+**Normalisation** erases differences that were never differences. A Deployment
+whose source omits `replicas` and whose live object says `replicas: 1` is not
+two states, one of which is excusable — it is one state written two ways,
+because Kubernetes defaults the field to 1. Emitting that as a difference and
+then hiding it behind a disclosure would still be telling the reader something
+untrue, just more quietly. Seven of the ten rows above disappear here.
+
+**Classification** explains what genuinely remains.
+`deployment.kubernetes.io/revision` really is in the cluster and really is not
+in Git, and pretending otherwise would be lying about the object. It is kept,
+labelled with who wrote it, and put behind a disclosure. Two of the ten rows end
+up here.
+
+One row is left in front of the reader.
+
+### Which defaults, and why so few
+
+A default is removed only when the source does not set the field *and* the live
+value is exactly the documented default. A field set to anything else still
+shows, which is what keeps `replicas: 2` in Git against `replicas: 1` running
+visible while `replicas` omitted against `replicas: 1` disappears.
+
+The table is kind-aware and deliberately short. A generic database of every
+default in the Kubernetes API would be a large thing that is wrong in places
+nobody notices, and being wrong here means hiding drift silently. Kinds are
+added when somebody has read the API reference for them; Deployment is the only
+one so far.
+
+```text
+Deployment    replicas 1 · progressDeadlineSeconds 600 · revisionHistoryLimit 10
+              strategy RollingUpdate 25% / 25%
+Pod spec      restartPolicy Always · dnsPolicy ClusterFirst
+              schedulerName default-scheduler · terminationGracePeriodSeconds 30
+              securityContext {} · serviceAccountName default
+Container     terminationMessagePath · terminationMessagePolicy File
+              resources {} · imagePullPolicy derived from the image tag
+Volume        hostPath.type ""
+```
+
+Two of those are worth a note. The pull policy is the only rule that depends on
+another field: an untagged image or one tagged `latest` is pulled every time and
+anything else only when missing, so it is computed rather than looked up.
+`hostPath.type` is the only place where an omitted field and an empty string are
+treated as the same thing — that is true for this field and false for a great
+many others, so it is written down for this field rather than applied as a rule.
+
+### What a difference does and does not claim
+
+Each row says where a field is, not whose fault it is. A container image that
+differs is labelled `Container image` and shows both values; it is not labelled
+drift, because a pipeline may have rewritten the tag between the commit and the
+apply, and this comparison cannot tell that from somebody editing the cluster.
+
+Anything unrecognised stays in front of the reader. Showing one field too many
+costs a moment; hiding one costs a drift nobody notices, and the failure is
+silent.
+
+### Normalising is where this feature could quietly lie
+
+Comparing the two objects as they arrive produces a difference on every field
+Kubernetes writes for its own bookkeeping, and a panel that always says "47
+differences" is a panel nobody reads. Stripping everything that appears only in
+the live object is the opposite mistake and a worse one: a field somebody
+deleted from Git and never removed from the cluster looks exactly like a field
+the API server defaulted, and hiding both hides real drift.
+
+So a field is removed only when it is known to be written by Kubernetes rather
+than by a person, and the list stays short because every entry on it is a place
+drift could hide:
+
+```text
+status                        the cluster's report, never desired state
+metadata.uid                  does not exist until the object does
+metadata.resourceVersion      the concurrency counter, changes on every write
+metadata.generation           a counter about spec rather than part of it
+metadata.creationTimestamp    a fact about the cluster
+metadata.managedFields        which controller owns which field
+metadata.selfLink             a URL the API server used to serve
+last-applied-configuration    a copy of a previous manifest
+argocd.argoproj.io/tracking-id  written by Argo CD after applying
+creationTimestamp: null       serialisation artefact in embedded metadata
+```
+
+Two are deliberately left in. `metadata.deletionTimestamp` will never be in a
+manifest, which is an argument for ignoring it and a better argument for the
+opposite: an object being deleted is not an object that matches its manifest,
+and that is exactly what somebody opening this panel needs to know. Labels the
+cluster carries and the manifest does not are kept for a different reason —
+`app.kubernetes.io/instance` is Argo CD's label-tracking marker and also what
+Helm writes on everything it installs, so discarding it would mean silently
+throwing away a label a chart genuinely declared.
+
+One correction is invisible and load-bearing. A number read from YAML arrives
+as a float and the same number from the API server arrives as an integer,
+because the dynamic client decodes whole numbers that way. Both sides go
+through the same decoder before anything is compared; without it, every replica
+count, port and timeout in every repository would report as drift, and the
+feature would not be useless so much as confidently wrong.
+
+### Reordering a container is not a change
+
+A container moving to the front of a pod spec must not report every field of
+both containers as changed. A reader who sees that once stops believing the
+panel, so lists whose elements name themselves are matched by that name and
+addressed by it:
+
+```text
+spec.template.spec.containers[name=api].image
+```
+
+The table is short and taken from the merge keys Kubernetes declares for those
+fields — containers, init and ephemeral containers, `env`, `volumes` by name,
+`volumeMounts` by mount path, ports by whichever of name, `containerPort` or
+`port` identifies every element on both sides. Anything not on it is compared
+by position, which is right for the lists that really are ordered, `command`
+and `args` among them. This is not a strategic-merge implementation and is not
+trying to be one.
+
+### What a difference does and does not claim
+
+Each row says where a field is, not whose fault it is. `Changed` usually means
+what it looks like. `Only in the cluster` may be drift, or a default the API
+server filled in, or a sidecar a mesh injected, or something a controller wrote
+back — and this comparison reads two objects, so it cannot tell those apart and
+does not pretend to.
+
+### Secret values do not cross the boundary
+
+A comparison is rendered whenever the panel is open, which is not the same as
+somebody asking to see a secret. For a kind the catalogue marks sensitive, the
+`data` and `stringData` values are withheld and the difference says only that
+the key differs:
+
+```text
+data.DB_PASSWORD    Value differs
+```
+
+The key name is the useful half and is not itself secret — it is already a
+count on the resource list and a name in the inspector. The redaction covers
+the whole map as well as its entries, because a `data` block missing on one
+side would otherwise be one difference carrying every value in it.
+
+### Where this and Argo CD can disagree
+
+Argo CD renders Helm and Kustomize sources, runs its own normalisation, and
+honours `ignoreDifferences` rules. This reads one file and compares fields. The
+two can therefore disagree, and when they do the panel shows both facts and
+corrects neither:
+
+```text
+Argo CD         Synced
+Source vs Live  1 meaningful difference
+```
+
+Assuming one of them must be wrong is how a panel starts lying. The known
+sources of honest disagreement are rendered sources this slice does not render,
+`ignoreDifferences` rules it does not read, defaults for kinds whose API
+reference nobody has read into the table yet, and semantically equal values
+spelled differently — `cpu: 0.1` and `cpu: 100m` are the same quantity and this
+reports them as a difference.
+
+Comparison is offered only for a manifest located exactly. Generated sources,
+an ambiguous match, a repository that could not be read, a document that does
+not parse and an object that no longer exists are five different situations
+with five different things to do about them, so each is its own state rather
+than one "diff failed". None of them is shown as an error: "unavailable" is
+what a Helm Application will always be, and colouring that red would teach
+people to ignore the panel.
+
+Everything here is read-only. Nothing writes to the cluster and nothing writes
+to Git.
+
+---
+
 ## Guardrails
 
 Production is marked with a word, not only a colour, and a hazard band that

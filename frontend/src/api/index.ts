@@ -6,7 +6,7 @@
  * for components to import, a couple of ergonomic defaults, and the names of
  * the events the backend publishes.
  */
-import { Browser, CancellablePromise, Events } from '@wailsio/runtime'
+import { Browser, CancellablePromise, Clipboard, Events } from '@wailsio/runtime'
 
 import {
   AccessService,
@@ -86,7 +86,7 @@ export const api = {
   argoDashboard: ArgoCDService.GetArgoDashboard,
   argoApplications: list(ArgoCDService.ListArgoApplications),
   gitOwnership: ArgoCDService.ResolveGitOwnership,
-  locateManifest: GitOpsService.LocateManifest,
+  sourceState: GitOpsService.CompareWithSource,
   syncArgoApps: (clusterId: string, apps: ArgoAppRef[], prune: boolean) =>
     ArgoCDService.SyncArgoApplications(clusterId, { apps, prune }),
   refreshArgoApps: (clusterId: string, apps: ArgoAppRef[], hard: boolean) =>
@@ -160,6 +160,35 @@ export function on<E extends Events.WailsEventName>(
 /** openInBrowser hands a URL to the user's browser rather than the webview. */
 export function openInBrowser(url: string): void {
   void Browser.OpenURL(url)
+}
+
+/**
+ * copyToClipboard puts text on the system clipboard.
+ *
+ * It goes through Wails rather than `navigator.clipboard` because the browser
+ * API is only available in a secure context, and the webview serves this
+ * application from a custom scheme that does not qualify. The call silently
+ * does nothing there — which is worse than failing, because the button
+ * animates and the clipboard is unchanged.
+ *
+ * Wails asks the platform directly, so it works wherever the app does. The
+ * browser API is kept as a fallback for `wails dev` in a real browser tab,
+ * where the runtime bridge is not attached.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await Clipboard.SetText(text)
+    return true
+  } catch {
+    // Ignored: the fallback below is the answer, and reporting both failures
+    // would tell the user about a bridge they do not know they are using.
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

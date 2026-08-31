@@ -22,6 +22,8 @@ import (
 	"biebie-kube/internal/argocd"
 	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/cluster"
+	"biebie-kube/internal/git"
+	"biebie-kube/internal/gitops"
 	"biebie-kube/internal/kube"
 	"biebie-kube/internal/kubeconfig"
 	"biebie-kube/internal/logs"
@@ -71,6 +73,7 @@ type Core struct {
 	terminals *terminal.Service
 	forwards  *portforward.Service
 	argocd    *argocd.Service
+	gitops    *gitops.Service
 }
 
 // NewCore constructs the application's services.
@@ -122,6 +125,16 @@ func NewCore() (*Core, error) {
 	// service borrows the one that already owns them rather than dialling a
 	// tunnel the port-forward panel would know nothing about.
 	core.argocd = argocd.NewService(core.clusters, core.forwards)
+
+	// Repository mirrors live in the cache directory rather than beside
+	// data.json: they are large, they rebuild themselves from the remote, and
+	// a person who deletes them loses only the speed of the next read. A
+	// machine that will not name a cache directory gets a service that keeps
+	// answering ownership and declines to search, which is one fewer feature
+	// rather than an application that will not start.
+	if root, err := git.DefaultRoot(); err == nil {
+		core.gitops = gitops.NewService(core.clusters, core.argocd, git.NewCache(root))
+	}
 
 	return core, nil
 }

@@ -13,6 +13,7 @@ import {
   AppService,
   ArgoCDService,
   ClusterService,
+  GitOpsService,
   LogService,
   PortForwardService,
   ResourceService,
@@ -84,6 +85,8 @@ export const api = {
   argoInstalled: ArgoCDService.ArgoCDInstalled,
   argoDashboard: ArgoCDService.GetArgoDashboard,
   argoApplications: list(ArgoCDService.ListArgoApplications),
+  gitOwnership: ArgoCDService.ResolveGitOwnership,
+  locateManifest: GitOpsService.LocateManifest,
   syncArgoApps: (clusterId: string, apps: ArgoAppRef[], prune: boolean) =>
     ArgoCDService.SyncArgoApplications(clusterId, { apps, prune }),
   refreshArgoApps: (clusterId: string, apps: ArgoAppRef[], hard: boolean) =>

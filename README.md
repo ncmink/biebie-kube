@@ -405,6 +405,166 @@ name to be typed, because a sync with prune deletes live resources.
 
 ---
 
+## Operational state goes to the cluster, desired state goes to Git
+
+The application has three responsibilities and they are not interchangeable:
+
+```text
+Observe    resources, metrics, events, logs, container diagnostics
+Operate    restart, scale, cordon, suspend, trigger, exec, port forward
+GitOps     the desired state those live objects were rendered from
+```
+
+Every mutation answers one question before it is routed anywhere: is this
+changing what is running, or changing what was asked for? A restart is the
+first — it is an incident verb, it belongs to the moment, and writing it into a
+repository would be recording an event as an intention. A replica count is the
+second: patching it live gets it overwritten by the next reconcile, and the
+engineer who does it has fixed the symptom in the one place nobody will read.
+
+```text
+operational state ──▶ Kubernetes
+desired state ─────▶ Git ──▶ Argo CD ──▶ Kubernetes
+```
+
+That is why there is no **New Resource** button posting arbitrary manifests at
+the API. A deployment created that way exists until the first sync notices
+nothing declares it. The gap between the two halves is not a missing feature,
+it is the thing the product is for.
+
+## What claims this object, and how sure is it
+
+The bridge across that boundary is one question — which Argo CD Application
+manages this live object? — and it has three possible answers of three
+different strengths. The drawer says which one it got.
+
+```text
+tracking annotation ──▶ names the Application and repeats the object's identity
+status.resources ─────▶ the Application's own account of what it manages
+instance label ───────▶ a name, and nothing behind it
+```
+
+The label is the weak one and it is the one that looks strongest.
+`app.kubernetes.io/instance` is Argo CD's default tracking method, and it is
+also a label the Kubernetes recommended-labels convention tells every tool to
+set — Helm writes it on everything it installs. A resource carrying it beside
+an Application of the same name may have nothing whatever to do with Argo CD.
+So the label raises a candidate and never a conclusion, and the panel says
+"possibly managed" rather than lending it a confidence it has not earned. An
+annotation is checked against the object it is on, because one copied by a
+careless `kubectl apply -f` names an Application that never created it.
+
+From the Application, the repository is read out of `spec.sources` before
+`spec.source`, so a multi-source Application is not reported with the first of
+several repositories as though it were the only one.
+
+Knowing the repository, the revision and the directory is still not knowing
+which file declares this object, and only one of the four cases below has a
+file to find at all:
+
+```text
+plain directory   the tree is known; the file can be looked for
+Helm / Kustomize  the manifests are rendered; no file equals this object
+plugin            the same, and this application cannot even guess how
+Helm chart        there is no Git tree at all
+```
+
+Each source carries the sentence explaining its own limit, so the reason is
+written once in Go rather than reassembled in the frontend. The three that
+render their objects get no **Locate manifest** button, because a button that
+could only ever come back empty is worse than no button.
+
+A repository URL may legitimately carry a token in its userinfo, and Argo CD
+stores whatever was configured. Credentials are stripped where the source is
+read rather than where a URL is displayed, because everything downstream of
+that point crosses the binding, reaches a log line, or ends up quoted in an
+error message. An `scp`-style remote keeps its account name — `git@github.com`
+is an SSH user, not a secret, and removing it would change where the URL
+points.
+
+Reading ownership costs nothing on a cluster without Argo CD: the catalogue
+already knows whether `applications.argoproj.io` is served, so the question is
+answered before any request is made and the panel does not render at all.
+
+Nothing here writes to Git yet. Establishing that the relationship is
+trustworthy comes first, because create, edit and delete are all built on top
+of it and each one would inherit a wrong answer.
+
+---
+
+## The repository is read with the engineer's own git
+
+Finding the file means leaving the machine, and that raises the question of
+whose credentials go with it. The answer is: nobody's new ones. Biebie Kube
+shells out to the `git` already installed and lets it authenticate the way it
+always does — credential helper, ssh-agent, keychain. It stores no token, asks
+for no password, and adds no secret to the ones an engineer is already
+responsible for.
+
+The cluster's credentials are pointedly not reused. A `ServiceAccount` that can
+read Argo CD objects is not a Git identity, and a repository somebody cannot
+reach from their own terminal is one this application says it cannot reach
+either. That is a smaller product and a much smaller thing to get wrong.
+
+### The allowlist is the part to read carefully
+
+Three strings arrive from the cluster: the repository URL, the revision and the
+path. Whoever can edit an Argo CD Application chooses all three, and Git treats
+several of them as instructions rather than as data:
+
+```text
+ext::sh -c id         a transport that runs an arbitrary command
+file:///etc           a transport that reads this machine's disk
+--upload-pack=…       a leading dash, so git reads it as an option
+main:../../etc/passwd revision syntax addressing whatever it likes
+```
+
+So `Remote`, `Revision` and `Path` in `internal/git` are types, not validated
+strings. They can only be built by a constructor that runs the allowlist, which
+means a value that has not been checked cannot reach a command line — the check
+is not something a later caller can forget. Only `https`, `http` and `ssh`
+remotes are run; everything else is refused by name so the panel can say which
+transport it declined. Nothing is ever passed through a shell.
+
+Two more doors are closed on the way out. Every invocation sets
+`GIT_TERMINAL_PROMPT=0` and an ssh `BatchMode`, because a background process
+that stops to ask for a passphrase is an application that has hung. And git's
+own errors quote the URL it was handed, so stderr is stripped of credentials
+before it becomes an error — the same reflex as `describe()` removing home
+directories, one layer further out.
+
+Repositories are mirrored bare under the user's cache directory, with
+`--filter=blob:none` where the server offers it. Bare, so no working copy
+exists that somebody could edit by accident; the cache directory, because a
+mirror is large, rebuilds itself, and deleting it costs only the speed of the
+next read. Reading is bounded by a file count and a file size, and a search
+that stopped early says so rather than reporting that nothing was found.
+
+### Every way this fails leaves the panel standing
+
+Locating a manifest is the one thing here that reaches the network, and it is
+behind a button for that reason. When it does not work, what ownership already
+established is untouched:
+
+```text
+no git installed      "Git is not installed on this machine."
+transport refused     names the transport and why it will not be run
+credentials rejected  says so, with the token removed from git's own words
+host unreachable      says which host
+nothing found         stays at "source tree known", says where it looked
+several files found   lists all of them and picks none
+```
+
+The last one is not a failure. A base beside its overlay is a real state of a
+repository, and choosing between them is a judgement this application does not
+have the information to make. It shows the candidates and stops.
+
+What is found is reported against the commit it was read at, not the branch
+name that was asked for. `main` is a different tree tomorrow, and an answer
+nobody can check afterwards is not much of an answer.
+
+---
+
 ## Guardrails
 
 Production is marked with a word, not only a colour, and a hazard band that

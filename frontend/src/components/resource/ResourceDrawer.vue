@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import ConfigData from '@/components/resource/ConfigData.vue'
 import EventList from '@/components/resource/EventList.vue'
+import GitOpsPanel from '@/components/resource/GitOpsPanel.vue'
 import RelatedGroups from '@/components/resource/RelatedGroups.vue'
 import { api, message } from '@/api'
 import { actionsFor } from '@/composables/actions'
@@ -292,6 +293,8 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
             </div>
           </dl>
         </section>
+
+        <GitOpsPanel v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 
         <RelatedGroups v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 

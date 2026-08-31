@@ -31,6 +31,17 @@ func (s *ArgoCDService) ListArgoApplications(ctx context.Context, clusterID stri
 	return apps, describe(err)
 }
 
+// ResolveGitOwnership answers where one live object's desired state lives.
+//
+// It is the bridge between the two halves of the product: an object a
+// repository declares is changed in that repository, and an object nothing
+// declares is operated on directly. The answer carries how it was reached, so
+// the UI can show a guess as a guess.
+func (s *ArgoCDService) ResolveGitOwnership(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.ResourceOwnership, error) {
+	ownership, err := s.core.argocd.Ownership(ctx, clusterID, ref)
+	return ownership, describe(err)
+}
+
 // SyncArgoApplications records a sync request on each Application.
 //
 // Prune is carried on the request rather than defaulted here, because it

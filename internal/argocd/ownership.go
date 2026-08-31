@@ -333,7 +333,7 @@ func describeSource(source map[string]any, multi bool) domain.GitSource {
 		out.Note = "A config-management plugin renders these manifests, so no file in the repository equals this object."
 	case has(source, "kustomize"):
 		out.Renderer, out.Certainty = domain.RendererKustomize, domain.ManifestGenerated
-		out.Note = "Kustomize renders these manifests from bases and overlays, so this object may not appear whole in any one file."
+		out.Note = "This resource is assembled from a base and one or more overlays."
 	case has(source, "helm"):
 		out.Renderer, out.Certainty = domain.RendererHelm, domain.ManifestGenerated
 		out.Note = "Helm renders these manifests from templates and values, so no file in the repository equals this object."

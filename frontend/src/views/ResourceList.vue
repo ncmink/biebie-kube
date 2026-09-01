@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
+import CreateResourceDialog from '@/components/resource/CreateResourceDialog.vue'
 import ResourceActionDialog from '@/components/resource/ResourceActionDialog.vue'
 import ResourceDrawer from '@/components/resource/ResourceDrawer.vue'
 import ResourceTable from '@/components/resource/ResourceTable.vue'
@@ -60,6 +61,16 @@ const count = computed(() => {
 const menu = ref<{ row: ResourceRow; x: number; y: number } | null>(null)
 const acting = ref<{ row: ResourceRow; action: ActionDescriptor } | null>(null)
 const deleting = ref<ResourceRow | null>(null)
+
+/**
+ * Creating is offered from the list rather than from a kind, and the dialog
+ * asks the backend whether it is allowed rather than being hidden here.
+ *
+ * Whether a namespace is somebody's GitOps destination is a question with a
+ * cluster in the answer, and asking it on every list render would be a round
+ * trip per navigation for a button most people will not press.
+ */
+const creating = ref(false)
 
 function reload() {
   void resources.load(props.clusterId, props.kind, namespace.value)
@@ -143,6 +154,12 @@ async function remove() {
       >
         Refresh
       </button>
+      <button
+        class="rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
+        @click="creating = true"
+      >
+        Create {{ heading }}…
+      </button>
     </header>
 
     <p
@@ -204,6 +221,17 @@ async function remove() {
       :action="acting.action"
       :cluster="cluster"
       @close="acting = null"
+    />
+
+    <CreateResourceDialog
+      v-if="creating"
+      :cluster-id="clusterId"
+      :kind="kind"
+      :kind-title="kindInfo?.title ?? kind"
+      :namespace="namespace"
+      :cluster="cluster"
+      @created="reload"
+      @close="creating = false"
     />
 
     <ConfirmDialog

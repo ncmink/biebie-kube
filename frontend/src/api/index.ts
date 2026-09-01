@@ -12,6 +12,7 @@ import {
   AccessService,
   AppService,
   ArgoCDService,
+  AuthoringService,
   ClusterService,
   GitOpsService,
   LogService,
@@ -81,6 +82,17 @@ export const api = {
   events: list(ResourceService.ListEvents),
   overview: ResourceService.GetClusterOverview,
   search: list(ResourceService.SearchResources),
+
+  // Resource authoring. Every entry is a domain operation: there is
+  // deliberately nothing here that takes an executable and arguments.
+  authoringRuntime: AuthoringService.AuthoringRuntime,
+  prepareAuthoringRuntime: AuthoringService.PrepareAuthoringRuntime,
+  createAvailability: AuthoringService.CreateAvailability,
+  newAuthoringSession: AuthoringService.NewAuthoringSession,
+  discardAuthoringSession: AuthoringService.DiscardAuthoringSession,
+  synthesize: AuthoringService.Synthesize,
+  validateManifest: AuthoringService.Validate,
+  createResources: AuthoringService.CreateResources,
 
   argoInstalled: ArgoCDService.ArgoCDInstalled,
   argoDashboard: ArgoCDService.GetArgoDashboard,

@@ -112,7 +112,8 @@ func resolveOwnership(
 	out := domain.ResourceOwnership{
 		Ref:        ref,
 		Confidence: domain.OwnershipUnmanaged,
-		Reason:     "No Argo CD Application claims this object. Its desired state is not in a repository this application can see, so operating on it directly is the correct thing to do.",
+		Reason: "No Argo CD Application claims this object. Its desired state is not in a repository this application can see, " +
+			"so a change made here is not recorded in Git by Biebie Kube.",
 	}
 
 	id := identify(obj)

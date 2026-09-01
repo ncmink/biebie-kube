@@ -13,6 +13,7 @@
 
 export {
   ArgoActivityKind,
+  AuthoringMode,
   Category,
   ClusterState,
   ComparisonBlocker,
@@ -53,6 +54,7 @@ export type {
   ArgoDashboard,
   ArgoEndpoint,
   ArgoSummary,
+  AuthoringRuntime,
   Cluster,
   ClusterInput,
   ClusterMetrics,
@@ -62,6 +64,10 @@ export type {
   ContainerInfo,
   ContainerPort,
   Counter,
+  CreateAvailability,
+  CreatedResource,
+  CreateFailure,
+  CreateOutcome,
   CustomerGroup,
   DataEntry,
   Diagnosis,
@@ -80,6 +86,9 @@ export type {
   LogOptions,
   SourceState,
   ManifestLocation,
+  ManifestPreview,
+  ManifestProblem,
+  ManifestResource,
   ManifestSearch,
   StateComparison,
   StateDifference,
@@ -100,7 +109,10 @@ export type {
   TerminalChunk,
   TerminalRequest,
   TerminalSession,
+  ToolStatus,
 } from '@bindings/biebie-kube/internal/domain/models'
+
+export type { AuthoringSession } from '@bindings/biebie-kube/models'
 
 export type { ResourceChange } from '@bindings/biebie-kube/internal/cluster/models'
 

@@ -20,6 +20,7 @@ import (
 
 	"biebie-kube/internal/access"
 	"biebie-kube/internal/argocd"
+	"biebie-kube/internal/authoring"
 	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/git"
@@ -75,6 +76,7 @@ type Core struct {
 	forwards  *portforward.Service
 	argocd    *argocd.Service
 	gitops    *gitops.Service
+	authoring *authoring.Service
 
 	// reveal shows a file in the platform's file manager. It is here rather
 	// than inside a service because diagnosing a repository ends at a file in
@@ -141,6 +143,15 @@ func NewCore() (*Core, error) {
 	// rather than an application that will not start.
 	if root, err := git.DefaultRoot(); err == nil {
 		core.gitops = gitops.NewService(core.clusters, core.argocd, git.NewCache(root))
+	}
+
+	// The cdk8s workspace is a cache for the same reasons the mirrors are: it
+	// is an npm install, it rebuilds itself, and deleting it costs the time of
+	// the next install. A machine that will not name a cache directory loses
+	// resource authoring and keeps everything else.
+	if root, err := os.UserCacheDir(); err == nil {
+		core.authoring = authoring.NewService(core.clusters, core.argocd,
+			filepath.Join(root, "biebie-kube", "authoring"))
 	}
 
 	return core, nil

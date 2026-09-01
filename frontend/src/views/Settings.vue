@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import ResourceAuthoring from '@/components/settings/ResourceAuthoring.vue'
 import { api, message } from '@/api'
 import { useClusterStore } from '@/stores/clusters'
 import { useUIStore } from '@/stores/ui'
@@ -180,6 +181,8 @@ onMounted(load)
           No kubeconfig has been imported yet.
         </p>
       </section>
+
+      <ResourceAuthoring />
 
       <section class="mt-8">
         <h2 class="text-sm font-semibold text-ink">Biebie Access</h2>

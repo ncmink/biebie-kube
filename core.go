@@ -30,6 +30,7 @@ import (
 	"biebie-kube/internal/manifest"
 	"biebie-kube/internal/portforward"
 	"biebie-kube/internal/resources"
+	"biebie-kube/internal/reveal"
 	"biebie-kube/internal/store"
 	"biebie-kube/internal/terminal"
 )
@@ -74,6 +75,11 @@ type Core struct {
 	forwards  *portforward.Service
 	argocd    *argocd.Service
 	gitops    *gitops.Service
+
+	// reveal shows a file in the platform's file manager. It is here rather
+	// than inside a service because diagnosing a repository ends at a file in
+	// ~/.ssh that this application will show and will not edit.
+	reveal *reveal.Revealer
 }
 
 // NewCore constructs the application's services.
@@ -96,6 +102,7 @@ func NewCore() (*Core, error) {
 	}
 	core.access = accessClient
 	core.launcher = access.NewLauncher()
+	core.reveal = reveal.New()
 
 	events := emitter{}
 

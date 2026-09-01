@@ -796,6 +796,118 @@ to Git.
 
 ---
 
+## When the repository will not open
+
+Of those five states, one has somewhere further to go. A Helm Application will
+never have a file to compare and a document that does not parse names the file
+to go and fix, but a repository that could not be read is a sentence from git
+standing in for half a dozen different problems with half a dozen different
+people to go and ask:
+
+```text
+fatal: Could not read from remote repository.
+```
+
+That sentence is true and useless. Git is not installed, or is installed
+somewhere the PATH of a window started by launchd does not reach. The host does
+not resolve, or resolves and does not answer, or answers slowly. The key is not
+one the server knows, or is one it knows perfectly well belonging to the other
+of somebody's two accounts. The account is right and has never been given this
+repository. The repository was renamed last month. Each of those is a different
+afternoon.
+
+So each is asked separately, in the order they sit in, and the answers are shown
+the way a failed cluster connection already is:
+
+```text
+Git                ✓  Found on the PATH this application can see.
+Repository URL     ✓  Read as an ssh repository.
+Git host           ✓  gitlab.example.com accepted a connection.      412ms
+SSH agent          ?  No ssh-agent is visible to this application.
+Repository         ✕  The project you were looking for could not be
+                      found or you don't have permission to view it.
+```
+
+Nothing there clones, writes or changes a credential. A host is asked whether it
+is listening; a server is asked for a list of refs rather than a repository,
+because `ls-remote` is one round trip and proves the same thing a clone would
+have proved expensively.
+
+### The mark that is neither a tick nor a cross
+
+`?` is a check that ran and settled nothing, and it exists for the ssh-agent.
+A key with no passphrase authenticates without an agent and always has, so
+absence is not a failure — but this is a window rather than a terminal, `ssh-add`
+puts a key somewhere found through an environment variable, and a desktop
+application does not always inherit the environment a shell has. That is worth
+saying and not worth colouring red.
+
+### Two questions that look like one
+
+Authentication and authorisation are asked separately because servers answer
+them separately. `Test SSH identity` runs `ssh -T` and reads the greeting:
+
+```text
+Authenticated as octocat. This says who you are, not what you may read.
+```
+
+The account is reported only when the reply matches a form written down here —
+GitHub's, GitLab's, Bitbucket's. A server whose greeting is unrecognised gets
+the honest answer, that authentication worked and the identity could not be
+determined. Two accounts on one host is precisely the situation this exists for,
+and naming the wrong one would be worse than naming none.
+
+### The half the server withheld
+
+For the most common failure there is genuinely more than one cause, and the
+server has declined to say which:
+
+```text
+The server would not hand over this repository. It did not say whether the
+repository is missing or your account may not read it.
+
+• Your account has not been given access to this repository
+• Authentication succeeded as a different account from the one with access
+• The repository was moved, renamed or deleted
+• The path in the Argo CD Application is wrong
+```
+
+GitLab and several others answer "no such project" and "not yours" with the same
+words on purpose, so that a stranger cannot map a private namespace by reading
+error messages. Picking one of them here would be inventing what the server
+withheld, so both stay.
+
+### Copying the question rather than the answer
+
+```text
+git ls-remote https://gitlab.example.com/acme/infra.git HEAD
+```
+
+Running that in a terminal answers something this application cannot answer
+about itself: whether a shell can read the repository when this window cannot,
+which separates a credential problem from an environment one. The URL is
+scrubbed and there is nothing else in it to leak, because this application holds
+no credential to put in a command in the first place.
+
+### What it will not do
+
+It will not turn off host key checking. `StrictHostKeyChecking=no` is the
+convenient fix for a host key failure and it is the one thing a tool must never
+do on somebody's behalf, so a rejected host key is diagnosed as its own state
+and left alone.
+
+It will not edit `~/.ssh/config`, choose a key, write a Host block, touch
+`known_hosts` or create a config that is not there. A missing config is normal —
+ssh works without one — and writing into somebody's `.ssh` directory because a
+comparison failed would be deciding something about their authentication that is
+not this application's to decide. Where an ssh config does exist there is a
+button that shows it in the file manager, resolved for the platform rather than
+spelled `~/.ssh/config`, and revealing rather than opening because that file has
+no extension and asking a desktop to guess which application edits it goes wrong
+often enough to be worse than useless.
+
+---
+
 ## Guardrails
 
 Production is marked with a word, not only a colour, and a hazard band that

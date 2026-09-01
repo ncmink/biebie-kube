@@ -13,7 +13,7 @@ func TestASourceThatRendersItsObjectsIsUnavailableRatherThanFailed(t *testing.T)
 	// is declining to guess.
 	search := domain.ManifestSearch{Certainty: domain.ManifestGenerated, Reason: "Helm renders this object from templates."}
 
-	got := compareAgainst(search, nil, "")
+	got := compareAgainst(search, nil, refusal{})
 	if got.State != domain.ComparisonUnavailable {
 		t.Fatalf("state = %q", got.State)
 	}
@@ -34,7 +34,7 @@ func TestEachWayAComparisonCanDeclineIsItsOwnState(t *testing.T) {
 
 	for name, test := range map[string]struct {
 		search  domain.ManifestSearch
-		refusal string
+		refused refusal
 		want    domain.ComparisonBlocker
 	}{
 		"ambiguous": {
@@ -46,7 +46,7 @@ func TestEachWayAComparisonCanDeclineIsItsOwnState(t *testing.T) {
 		},
 		"repository": {
 			search:  domain.ManifestSearch{Certainty: domain.ManifestTree, Reason: "Git could not authenticate."},
-			refusal: "Git could not authenticate.",
+			refused: refusal{message: "Git could not authenticate."},
 			want:    domain.BlockerRepository,
 		},
 		"nothing found": {
@@ -58,7 +58,7 @@ func TestEachWayAComparisonCanDeclineIsItsOwnState(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := compareAgainst(test.search, nil, test.refusal)
+			got := compareAgainst(test.search, nil, test.refused)
 			if got.State != domain.ComparisonUnavailable {
 				t.Fatalf("state = %q", got.State)
 			}
@@ -80,7 +80,7 @@ func TestAManifestThatDoesNotParseSaysWhichFileAndWhy(t *testing.T) {
 		Located:   &domain.ManifestLocation{Path: "apps/deployment.yaml", Content: "spec:\n  replicas: [\n"},
 	}
 
-	got := compareAgainst(search, subjectFor(t, `metadata: {name: payment-api}`, false), "")
+	got := compareAgainst(search, subjectFor(t, `metadata: {name: payment-api}`, false), refusal{})
 	if got.Blocker != domain.BlockerManifestInvalid {
 		t.Fatalf("blocker = %q", got.Blocker)
 	}
@@ -102,7 +102,7 @@ func TestAnObjectEqualToItsManifestIsNotTheSameStateAsOneWithNoManifest(t *testi
 apiVersion: apps/v1
 kind: Deployment
 metadata: {name: payment-api}
-`, false), "")
+`, false), refusal{})
 
 	if equal.State != domain.ComparisonEqual {
 		t.Fatalf("state = %q: %s", equal.State, equal.Reason)
@@ -112,7 +112,7 @@ metadata: {name: payment-api}
 	}
 
 	missing := compareAgainst(
-		domain.ManifestSearch{Certainty: domain.ManifestTree, Reason: "nothing found"}, nil, "")
+		domain.ManifestSearch{Certainty: domain.ManifestTree, Reason: "nothing found"}, nil, refusal{})
 	if missing.State == equal.State {
 		t.Fatal("an object with no manifest reads the same as one that matches its manifest")
 	}
@@ -145,7 +145,7 @@ metadata: {name: payment-api}
 spec: {replicas: 3}
 `, false)
 
-	got := compareAgainst(search, live, "")
+	got := compareAgainst(search, live, refusal{})
 	if got.State != domain.ComparisonDiffers || len(got.Differences) != 1 {
 		t.Fatalf("comparison = %+v", got)
 	}
@@ -174,7 +174,7 @@ metadata: {name: api-credentials}
 data: {TOKEN: bGl2ZQ==}
 `, true)
 
-	got := compareAgainst(search, live, "")
+	got := compareAgainst(search, live, refusal{})
 	if !got.Redacted {
 		t.Fatal("a comparison that withheld a value did not say so")
 	}
@@ -207,7 +207,7 @@ metadata:
   labels: {argocd.argoproj.io/instance: ak-super-auto}
 `, false)
 
-	got := compareAgainst(search, live, "")
+	got := compareAgainst(search, live, refusal{})
 	if got.State != domain.ComparisonEqual {
 		t.Fatalf("state = %q: %s", got.State, got.Reason)
 	}
@@ -243,7 +243,7 @@ metadata:
 spec: {template: {spec: {containers: [{name: api, image: "api:v1.8"}]}}}
 `, false)
 
-	got := compareAgainst(search, live, "")
+	got := compareAgainst(search, live, refusal{})
 	if got.Meaningful != 1 || got.SystemManaged != 1 {
 		t.Fatalf("meaningful = %d, system-managed = %d: %+v", got.Meaningful, got.SystemManaged, got.Differences)
 	}
@@ -270,7 +270,7 @@ metadata: {name: payment-api}
 spec: {replicas: 3, paused: false}
 `, false)
 
-	got := compareAgainst(search, live, "")
+	got := compareAgainst(search, live, refusal{})
 	if !strings.HasPrefix(got.Reason, "2 differences") {
 		t.Fatalf("reason = %q, differences = %d", got.Reason, len(got.Differences))
 	}

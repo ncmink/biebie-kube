@@ -198,6 +198,16 @@ type ManifestSearch struct {
 	// they are not the same sentence.
 	Reason string `json:"reason"`
 
+	// Output is what git wrote when it refused, kept whole for the reader who
+	// does not believe the sentence.
+	//
+	// Reason is one line lifted out of several by a rule that knows the
+	// failures git had already grown by the time it was written. When git
+	// fails some other way the sentence can be the wrong line, and a person
+	// with a terminal open would rather see the output than argue with a
+	// summary of it. It is empty whenever git was not the thing that refused.
+	Output string `json:"output,omitempty"`
+
 	// Commit is the commit every file was read at, rather than the branch name
 	// that was asked for. `main` is a different tree tomorrow, and an answer
 	// that names its commit is one that can be checked afterwards.

@@ -17,6 +17,7 @@ package gitops
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -116,15 +117,15 @@ func (s *Service) Compare(ctx context.Context, clusterID string, ref domain.Reso
 	out.Search.Certainty = domain.ManifestTree
 
 	var found []domain.ManifestLocation
-	var refusal string
+	var refused refusal
 	for _, source := range trees {
 		result, err := s.search(ctx, source, live.identity)
 		if err != nil {
 			// A repository that cannot be read is an answer rather than an
 			// error: the drawer keeps everything ownership established and
 			// gains a sentence saying what to go and fix.
-			if refusal == "" {
-				refusal = err.Error()
+			if refused.message == "" {
+				refused = declining(err)
 			}
 			continue
 		}
@@ -136,13 +137,34 @@ func (s *Service) Compare(ctx context.Context, clusterID string, ref domain.Reso
 		found = append(found, result.locations...)
 	}
 
-	out.Search = describeSearch(out.Search, found, refusal)
-	out.Comparison = compareAgainst(out.Search, live, refusal)
+	out.Search = describeSearch(out.Search, found, refused)
+	out.Comparison = compareAgainst(out.Search, live, refused)
 	return out, nil
 }
 
+// refusal is git declining, kept as both the sentence and the whole of what
+// git said. The sentence goes in the panel; the output goes behind a
+// disclosure for the reader the sentence does not satisfy.
+type refusal struct {
+	message string
+	output  string
+}
+
+// declining takes an error from a search and keeps git's own words with it.
+//
+// Only internal/git carries output worth showing. Anything else that fails
+// here has a message that is already the whole of what is known.
+func declining(err error) refusal {
+	out := refusal{message: err.Error()}
+	var failure *git.Error
+	if errors.As(err, &failure) {
+		out.output = failure.Output
+	}
+	return out
+}
+
 // describeSearch settles what the search found into a sentence.
-func describeSearch(out domain.ManifestSearch, found []domain.ManifestLocation, refusal string) domain.ManifestSearch {
+func describeSearch(out domain.ManifestSearch, found []domain.ManifestLocation, refused refusal) domain.ManifestSearch {
 	switch {
 	case len(found) == 1:
 		out.Certainty = domain.ManifestExact
@@ -156,8 +178,9 @@ func describeSearch(out domain.ManifestSearch, found []domain.ManifestLocation, 
 		out.Reason = fmt.Sprintf(
 			"%d documents declare an object with this name. The repository does not say which of them is the one running.",
 			len(found))
-	case refusal != "":
-		out.Reason = refusal
+	case refused.message != "":
+		out.Reason = refused.message
+		out.Output = refused.output
 	case out.Truncated:
 		out.Reason = fmt.Sprintf(
 			"The first %d files in this directory do not declare this object, and there are more than this search reads.",
@@ -178,7 +201,7 @@ func describeSearch(out domain.ManifestSearch, found []domain.ManifestLocation, 
 // to do about it, so each gets its own blocker rather than one "comparison
 // failed". None of them is an error: a Helm Application will never have a file
 // to compare, and colouring that red would teach people to ignore the panel.
-func compareAgainst(search domain.ManifestSearch, live *subject, refusal string) domain.StateComparison {
+func compareAgainst(search domain.ManifestSearch, live *subject, refused refusal) domain.StateComparison {
 	switch {
 	case search.Certainty == domain.ManifestGenerated || search.Certainty == domain.ManifestUnknown:
 		// Compare returns before reaching here for these, to avoid the clone.
@@ -189,8 +212,8 @@ func compareAgainst(search domain.ManifestSearch, live *subject, refusal string)
 	case len(search.Candidates) > 1:
 		return unavailable(domain.BlockerAmbiguous,
 			"More than one document declares this object, so there is no single source state to compare against.")
-	case refusal != "" && search.Located == nil:
-		return unavailable(domain.BlockerRepository, refusal)
+	case refused.message != "" && search.Located == nil:
+		return unavailable(domain.BlockerRepository, refused.message)
 	case search.Located == nil:
 		return unavailable(domain.BlockerNotLocated, search.Reason)
 	}

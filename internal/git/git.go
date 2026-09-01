@@ -32,6 +32,15 @@ import (
 // for the rest of the session.
 const Timeout = 90 * time.Second
 
+// ProbeTimeout bounds a question asked only to find out whether a repository
+// can be reached at all.
+//
+// Shorter than Timeout on purpose. A clone is allowed to be slow because it is
+// moving a repository; a diagnostic is a person waiting in front of a panel to
+// be told what is wrong, and one that takes a minute and a half to say
+// "unreachable" has answered a question they stopped asking.
+const ProbeTimeout = 20 * time.Second
+
 // ErrorKind says why git refused, in terms the UI can turn into a sentence
 // that names the thing to go and fix.
 type ErrorKind string
@@ -46,11 +55,35 @@ const (
 	// hand to git. It is a refusal rather than a failure.
 	ErrorUnsupported ErrorKind = "unsupported"
 
-	ErrorAuth         ErrorKind = "auth"
-	ErrorUnreachable  ErrorKind = "unreachable"
+	// ErrorAuth is the server declining to say who we are. It is separate from
+	// ErrorNoRepository because a key the server does not know and a key it
+	// knows but has not been given this repository are different problems with
+	// different people to go and ask.
+	ErrorAuth ErrorKind = "auth"
+
+	// ErrorHostKey is ssh refusing the host rather than the host refusing us.
+	// It sits on its own because the fix is never a credential, and because
+	// the convenient fix — turning host key checking off — is the one thing
+	// this application will not do on somebody's behalf.
+	ErrorHostKey ErrorKind = "hostKey"
+
+	// ErrorUnreachable is nothing answering at the other end.
+	ErrorUnreachable ErrorKind = "unreachable"
+
+	// ErrorTimeout is something answering too slowly to wait for. Separate
+	// from unreachable: a host that is merely slow is worth pressing again,
+	// and one that does not exist is not.
+	ErrorTimeout ErrorKind = "timeout"
+
+	// ErrorNoRepository is the server saying no to this repository. The name
+	// is older than what is now known about it — several servers answer
+	// "missing" and "not yours" with the same sentence on purpose, so that a
+	// stranger cannot map a private namespace by watching which error comes
+	// back. Anything worded for a person must keep both possibilities open.
 	ErrorNoRepository ErrorKind = "noRepository"
-	ErrorNoRevision   ErrorKind = "noRevision"
-	ErrorFailed       ErrorKind = "failed"
+
+	ErrorNoRevision ErrorKind = "noRevision"
+	ErrorFailed     ErrorKind = "failed"
 )
 
 // Error is a git failure with the reason separated from the wording.
@@ -60,6 +93,15 @@ const (
 type Error struct {
 	Kind    ErrorKind
 	Message string
+
+	// Output is everything git wrote, scrubbed but otherwise untouched.
+	//
+	// Message is one line chosen out of this by a rule that cannot be right
+	// about output nobody has seen yet — ssh alone grows new advisories
+	// between releases. Carrying the whole of it means a person reading an
+	// unfamiliar failure can see what git actually said, rather than trusting
+	// that the line this package picked was the one that mattered.
+	Output string
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -88,12 +130,18 @@ func Look() (string, error) {
 // for a password reads end-of-file and gives up rather than waiting for
 // somebody who is not there.
 func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	return runWithin(ctx, Timeout, dir, args...)
+}
+
+// runWithin is run with a bound of its own, for callers whose question is
+// worth less waiting than a clone is.
+func runWithin(ctx context.Context, limit time.Duration, dir string, args ...string) ([]byte, error) {
 	binary, err := Look()
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
 	command := exec.CommandContext(ctx, binary, args...)
@@ -117,32 +165,62 @@ func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 // is not loaded" and "that host does not exist" is the whole of what the
 // reader needs. LC_ALL is pinned in the environment so the strings matched
 // here are the ones git actually prints.
+//
+// Everything git said is searched, not only the line that gets shown. `git
+// clone` announces itself on stderr before it does anything — "Cloning into
+// bare repository '…'" — so on a clone the explanation is never the first
+// line, and looking only there classified every failed clone as "something
+// went wrong" and showed the announcement as the reason.
 func classify(ctx context.Context, err error, stderr string) error {
 	if ctx.Err() != nil {
-		return &Error{Kind: ErrorUnreachable, Message: "Git took too long to answer and was stopped."}
+		return &Error{Kind: ErrorTimeout, Message: "Git took too long to answer and was stopped."}
 	}
 
-	text := firstLine(Scrub(stderr))
-	switch lower := strings.ToLower(text); {
+	said := strings.TrimSpace(Scrub(stderr))
+	text := reason(said)
+
+	switch lower := strings.ToLower(said); {
+	// Host key first. ssh reports it as a permission problem as well, and
+	// reading it as one would send somebody to look at a key of their own
+	// when what changed was the server's.
+	case mentions(lower, "host key verification failed", "remote host identification has changed",
+		"no matching host key type"):
+		return &Error{Kind: ErrorHostKey, Message: text, Output: said}
+
+	// Then the repository, before authentication. A server that says "no such
+	// project, or not yours" has already let us in — it is answering about
+	// authorisation — and ssh follows that answer with its own "could not read
+	// from remote repository", which reads like a credential problem and is
+	// not one.
+	case mentions(lower, "repository not found", "does not appear to be a git repository",
+		"remote error: upload-pack", "access denied",
+		// GitLab, deliberately ambiguous between missing and forbidden.
+		"could not be found or you don't have permission",
+		// Bitbucket and several enterprise servers.
+		"you may not have access to this repository"):
+		return &Error{Kind: ErrorNoRepository, Message: text, Output: said}
+
 	case mentions(lower, "authentication failed", "could not read username", "could not read password",
 		"permission denied (publickey", "invalid username or password", "terminal prompts disabled",
 		"authentication is not supported"):
-		return &Error{Kind: ErrorAuth, Message: text}
-	case mentions(lower, "could not resolve host", "connection refused", "connection timed out",
-		"network is unreachable", "operation timed out", "no route to host", "failed to connect"):
-		return &Error{Kind: ErrorUnreachable, Message: text}
-	case mentions(lower, "repository not found", "does not appear to be a git repository",
-		"remote error: upload-pack", "access denied"):
-		return &Error{Kind: ErrorNoRepository, Message: text}
+		return &Error{Kind: ErrorAuth, Message: text, Output: said}
+
+	case mentions(lower, "connection timed out", "operation timed out"):
+		return &Error{Kind: ErrorTimeout, Message: text, Output: said}
+
+	case mentions(lower, "could not resolve host", "could not resolve hostname", "connection refused",
+		"network is unreachable", "no route to host", "failed to connect"):
+		return &Error{Kind: ErrorUnreachable, Message: text, Output: said}
+
 	case mentions(lower, "couldn't find remote ref", "unknown revision", "not a valid object name",
 		"did not match any file"):
-		return &Error{Kind: ErrorNoRevision, Message: text}
+		return &Error{Kind: ErrorNoRevision, Message: text, Output: said}
 	}
 
 	if text == "" {
-		return &Error{Kind: ErrorFailed, Message: fmt.Sprintf("Git failed: %v.", err)}
+		return &Error{Kind: ErrorFailed, Message: fmt.Sprintf("Git failed: %v.", err), Output: said}
 	}
-	return &Error{Kind: ErrorFailed, Message: text}
+	return &Error{Kind: ErrorFailed, Message: text, Output: said}
 }
 
 func mentions(text string, needles ...string) bool {
@@ -154,16 +232,48 @@ func mentions(text string, needles ...string) bool {
 	return false
 }
 
-// firstLine takes the sentence worth showing out of git's output.
+// chatter is what git and ssh say while they are working rather than about
+// what went wrong.
 //
-// git prints hints, a blank line and a suggestion to read a manual page after
-// the line that says what went wrong. The first non-empty line is the one a
-// person needs, and the cap is there because a server may answer with a page
-// of HTML.
-func firstLine(text string) string {
+// Progress goes to stderr alongside errors, so a failed clone's output begins
+// with the announcement of the clone and only later says why it stopped.
+// Showing the first line meant showing a cache path and the word "Cloning" to
+// somebody whose key was not loaded.
+//
+// The `**` entry is OpenSSH's advisory prefix. Version 10 warns on every
+// connection to a server that has no post-quantum key exchange, which is most
+// git hosts today: it is a true thing to say about the connection and no part
+// of why a command failed.
+var chatter = []string{
+	"**",
+	"cloning into",
+	"enumerating objects",
+	"counting objects",
+	"compressing objects",
+	"receiving objects",
+	"resolving deltas",
+	"updating files",
+	"total ",
+	"warning:",
+	"hint:",
+}
+
+// reason takes the sentence worth showing out of git's output.
+//
+// git surrounds the line that matters with progress before it and hints, a
+// blank line and a suggestion to read a manual page after it. What is wanted is
+// the first line that is neither, and the cap is there because a server may
+// answer with a page of HTML.
+//
+// `remote:` is dropped along with `fatal:`. Both say where a sentence came
+// from rather than what it says, and a panel that leads with "remote: The
+// project you were looking for…" is quoting a protocol at somebody.
+func reason(text string) string {
 	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "fatal: "))
-		if line == "" {
+		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "remote:"))
+		line = strings.TrimSpace(strings.TrimPrefix(line, "fatal:"))
+		if line == "" || isChatter(line) || isRule(line) {
 			continue
 		}
 		if len(line) > 300 {
@@ -172,4 +282,29 @@ func firstLine(text string) string {
 		return line
 	}
 	return ""
+}
+
+func isChatter(line string) bool {
+	lower := strings.ToLower(line)
+	for _, noise := range chatter {
+		if strings.HasPrefix(lower, noise) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRule spots the row of punctuation servers draw around a message.
+//
+// GitLab boxes its refusal in `=====` lines forty characters wide. They are
+// not empty, so skipping blanks does not skip them, and the first of them
+// arrives before the sentence it is decorating — which made a row of equals
+// signs the reason the comparison could not run.
+func isRule(line string) bool {
+	for _, r := range line {
+		if r != '=' && r != '-' && r != '_' && r != '*' && r != '~' {
+			return false
+		}
+	}
+	return true
 }

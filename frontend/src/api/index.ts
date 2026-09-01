@@ -87,6 +87,9 @@ export const api = {
   argoApplications: list(ArgoCDService.ListArgoApplications),
   gitOwnership: ArgoCDService.ResolveGitOwnership,
   sourceState: GitOpsService.CompareWithSource,
+  diagnoseGitAccess: GitOpsService.DiagnoseGitAccess,
+  testGitIdentity: GitOpsService.TestGitIdentity,
+  revealSSHConfig: GitOpsService.RevealSSHConfig,
   syncArgoApps: (clusterId: string, apps: ArgoAppRef[], prune: boolean) =>
     ArgoCDService.SyncArgoApplications(clusterId, { apps, prune }),
   refreshArgoApps: (clusterId: string, apps: ArgoAppRef[], hard: boolean) =>

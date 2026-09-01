@@ -22,8 +22,10 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { api, copyToClipboard, message } from '@/api'
+import GitAccessDiagnosis from '@/components/resource/GitAccessDiagnosis.vue'
 import { useUIStore } from '@/stores/ui'
 import {
+  ComparisonBlocker,
   ComparisonState,
   DifferenceClass,
   DifferenceKind,
@@ -31,7 +33,7 @@ import {
   ManifestCertainty,
   OwnershipConfidence,
 } from '@/types'
-import type { SourceState, GitSource, ResourceOwnership, ResourceRef } from '@/types'
+import type { GitAccess, SourceState, GitSource, ResourceOwnership, ResourceRef } from '@/types'
 
 const props = defineProps<{ clusterId: string; resource: ResourceRef }>()
 
@@ -46,7 +48,12 @@ const searching = ref(false)
 const searchError = ref('')
 const contentOpen = ref(false)
 const diffOpen = ref(false)
+const outputOpen = ref(false)
 const copied = ref(false)
+
+const access = ref<GitAccess | null>(null)
+const diagnosing = ref(false)
+const accessError = ref('')
 let copiedTimer = 0
 
 // Clicking down a list starts reads that finish out of order, and only the
@@ -162,6 +169,41 @@ const comparison = computed(() => sourceState.value?.comparison ?? null)
 const located = computed(() => search.value?.located ?? null)
 const candidates = computed(() => search.value?.candidates ?? [])
 
+// What git actually said, set only when git is the thing that refused. The
+// sentence shown above it is one line lifted out of this, and the lifting can
+// be wrong about a failure nobody has seen yet.
+const gitOutput = computed(() => search.value?.output ?? '')
+
+// Whether the repository, rather than anything about the manifest, is what
+// stopped the comparison. It is the one blocker with somewhere further to go:
+// a Helm Application has no file to compare and never will, and two files
+// declaring one name is a state of the repository rather than a fault in
+// reaching it.
+const unreachable = computed(
+  () => comparison.value?.blocker === ComparisonBlocker.BlockerRepository,
+)
+
+/**
+ * diagnose asks which part of the path to the repository is refusing.
+ *
+ * Behind a press rather than run the moment a comparison fails. It opens a
+ * connection to somebody's git host, and doing that automatically would mean
+ * clicking down a list of resources quietly dialled a server for every one
+ * that could not be read.
+ */
+async function diagnose() {
+  diagnosing.value = true
+  accessError.value = ''
+  try {
+    access.value = await api.diagnoseGitAccess(props.clusterId, props.resource)
+  } catch (err) {
+    access.value = null
+    accessError.value = message(err)
+  } finally {
+    diagnosing.value = false
+  }
+}
+
 // Two lists rather than one filtered at render time. The whole point of the
 // classification is that these are answers to different questions, and putting
 // them in one list with a badge on some of them would be the flat dump again.
@@ -202,6 +244,13 @@ async function compare() {
   searchError.value = ''
   contentOpen.value = false
   diffOpen.value = false
+  outputOpen.value = false
+
+  // A diagnosis describes the repository as it was a moment ago. Keeping one
+  // beside a fresh comparison would let the panel show a solved problem and an
+  // unsolved one at the same time and say nothing about which is which.
+  access.value = null
+  accessError.value = ''
   try {
     const found = await api.sourceState(props.clusterId, props.resource)
     if (mine !== token) return
@@ -611,9 +660,60 @@ function openApplication() {
           </p>
         </div>
 
-        <p v-else-if="search" class="mt-2 text-[11px] leading-relaxed text-ink-faint">
-          {{ search.reason }}
-        </p>
+        <template v-else-if="search">
+          <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">{{ search.reason }}</p>
+
+          <!--
+            A repository that could not be read is the one refusal with
+            somewhere further to go. The others describe the repository
+            accurately — a Helm Application has no file to compare and never
+            will — and offering to diagnose them would send somebody looking
+            for a fault that is not there.
+          -->
+          <button
+            v-if="unreachable && !access"
+            class="mt-2 rounded-lg border border-line px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink disabled:cursor-default disabled:text-ink-faint"
+            :disabled="diagnosing"
+            @click="diagnose"
+          >
+            {{ diagnosing ? 'Checking…' : 'Diagnose Git access' }}
+          </button>
+
+          <p v-if="accessError" class="mt-2 text-[11px] leading-relaxed text-bad">
+            {{ accessError }}
+          </p>
+
+          <GitAccessDiagnosis
+            v-if="access"
+            class="mt-3"
+            :cluster-id="clusterId"
+            :resource="resource"
+            :access="access"
+            @retry="compare"
+          />
+
+          <!--
+            The sentence above is one line lifted out of everything git wrote,
+            by a rule that only knows the failures git had already grown. When
+            it lifts the wrong line the reader is left arguing with a summary
+            of something they cannot see, so the output it came from is one
+            press away. The diagnosis carries its own copy, so this is only
+            here while there is no diagnosis to read it in.
+          -->
+          <template v-if="gitOutput && !access">
+            <button
+              class="mt-2 block text-[11px] text-ink-faint underline decoration-line underline-offset-2 hover:text-ink-muted"
+              @click="outputOpen = !outputOpen"
+            >
+              {{ outputOpen ? 'Hide git output' : 'Show git output' }}
+            </button>
+            <pre
+              v-if="outputOpen"
+              class="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md bg-surface-2 p-2.5 font-mono text-[11px] leading-relaxed text-ink-muted"
+              >{{ gitOutput }}</pre
+            >
+          </template>
+        </template>
       </template>
 
       <p v-if="!managed" class="mt-2 text-[11px] leading-relaxed text-ink-faint">

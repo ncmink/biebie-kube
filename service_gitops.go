@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"biebie-kube/internal/domain"
+	"biebie-kube/internal/git"
 )
 
 // GitOpsService answers questions about the desired state behind a live
@@ -43,4 +44,56 @@ func (s *GitOpsService) CompareWithSource(ctx context.Context, clusterID string,
 	}
 	state, err := s.core.gitops.Compare(ctx, clusterID, ref)
 	return state, describe(err)
+}
+
+// DiagnoseGitAccess works out which part of the path to the repository is
+// refusing.
+//
+// Behind its own press rather than run when a comparison fails. It asks a
+// server questions, and doing that automatically would mean every failed
+// comparison in a list of resources quietly opened connections nobody asked
+// for. Nothing it does writes anything, anywhere.
+func (s *GitOpsService) DiagnoseGitAccess(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.GitAccess, error) {
+	if s.core.gitops == nil {
+		return domain.GitAccess{}, errors.New("this machine has no cache directory for repository mirrors")
+	}
+	access, err := s.core.gitops.Diagnose(ctx, clusterID, ref)
+	return access, describe(err)
+}
+
+// TestGitIdentity asks the git host which account it authenticates as.
+//
+// Its own call because it is its own question, and one worth being explicit
+// about: it opens an ssh connection to somebody's git host. The answer is
+// about authentication only — a host that greets you by name has said nothing
+// about which repositories are yours.
+func (s *GitOpsService) TestGitIdentity(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.GitIdentity, error) {
+	if s.core.gitops == nil {
+		return domain.GitIdentity{}, errors.New("this machine has no cache directory for repository mirrors")
+	}
+	identity, err := s.core.gitops.Identify(ctx, clusterID, ref)
+	return identity, describe(err)
+}
+
+// RevealSSHConfig shows the ssh configuration file in the file manager.
+//
+// Shows rather than opens, and shows rather than edits. Which key reaches
+// which host is the engineer's decision, and an application that rewrote a
+// Host block because a comparison failed would be making it for them.
+func (s *GitOpsService) RevealSSHConfig(ctx context.Context, path string) error {
+	if s.core.reveal == nil {
+		return errors.New("this platform has no file manager to show the file in")
+	}
+
+	// The path is resolved here rather than trusted from the window. The
+	// frontend was given one by the diagnosis and has no business substituting
+	// another, and this is the only ssh path there is to show.
+	resolved, err := git.SSHConfig()
+	if err != nil {
+		return describe(err)
+	}
+	if path != "" && path != resolved {
+		return errors.New("that is not this machine's ssh configuration file")
+	}
+	return describe(s.core.reveal.Reveal(ctx, resolved))
 }

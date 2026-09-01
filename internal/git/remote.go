@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"path"
 	"strings"
@@ -20,10 +21,89 @@ import (
 // caller can forget to do, because there is no way to construct one without
 // it.
 
+// Transport is how git reaches a repository.
+//
+// Not a thing git needs told — it reads the URL itself — but a thing a person
+// being asked why they cannot reach a repository needs told, because the
+// answer to "what should I go and check" is a different answer for a key than
+// for a token.
+type Transport string
+
+// The transports the allowlist admits.
+const (
+	TransportUnknown Transport = ""
+	TransportSSH     Transport = "ssh"
+	TransportHTTPS   Transport = "https"
+	TransportHTTP    Transport = "http"
+)
+
 // Remote is a repository URL that is safe to hand to the git command.
-type Remote struct{ url string }
+//
+// The parts beside the URL are filled in by ParseRemote, which has already
+// taken the string apart to check it. Working them out a second time somewhere
+// else would be a second implementation of the same parse, and the two would
+// eventually disagree about something.
+type Remote struct {
+	url       string
+	transport Transport
+	host      string
+	port      string
+
+	// user is the account in the URL, kept only for ssh, where it is `git`
+	// rather than a secret. An https userinfo never reaches this field: it is
+	// stripped upstream and dropped by Display below in case it did not.
+	user string
+}
 
 func (r Remote) String() string { return r.url }
+
+// Transport says which of ssh or https git will use.
+func (r Remote) Transport() Transport { return r.transport }
+
+// Host is the machine git will talk to, without the port or the account.
+func (r Remote) Host() string { return r.host }
+
+// Address is host and port, ready to dial.
+func (r Remote) Address() string {
+	if r.host == "" {
+		return ""
+	}
+	return net.JoinHostPort(r.host, r.portOrDefault())
+}
+
+func (r Remote) portOrDefault() string {
+	switch {
+	case r.port != "":
+		return r.port
+	case r.transport == TransportSSH:
+		return "22"
+	case r.transport == TransportHTTP:
+		return "80"
+	default:
+		return "443"
+	}
+}
+
+// SSHTarget is what ssh would be given to talk to this host on its own,
+// `git@host`, and is empty for anything that is not ssh.
+//
+// It carries no repository. Asking a server who we are is a different question
+// from asking it for a repository, and the whole reason to ask separately is
+// to find out which of the two is failing.
+func (r Remote) SSHTarget() string {
+	if r.transport != TransportSSH || r.host == "" {
+		return ""
+	}
+	user := r.user
+	if user == "" {
+		user = "git"
+	}
+	return user + "@" + r.host
+}
+
+// Display is the URL with anything credential-shaped taken out of it, for
+// putting on a screen or in a command somebody will paste.
+func (r Remote) Display() string { return Scrub(r.url) }
 
 // Revision is a branch, tag or commit that is safe to pass to git.
 type Revision struct{ value string }
@@ -61,14 +141,27 @@ func ParseRemote(raw string) (Remote, error) {
 	}
 
 	if scheme, _, found := strings.Cut(value, "://"); found {
-		if !schemes[strings.ToLower(scheme)] {
+		scheme = strings.ToLower(scheme)
+		if !schemes[scheme] {
 			return Remote{}, unsupported(scheme)
 		}
 		parsed, err := url.Parse(value)
 		if err != nil || parsed.Host == "" {
 			return Remote{}, &Error{Kind: ErrorUnsupported, Message: "This repository URL cannot be read as a URL."}
 		}
-		return Remote{url: value}, nil
+		remote := Remote{
+			url:       value,
+			transport: Transport(scheme),
+			host:      parsed.Hostname(),
+			port:      parsed.Port(),
+		}
+		if remote.transport == TransportSSH {
+			// Only for ssh, where a username is an account name. The userinfo
+			// on an https URL is frequently the token itself, and this struct
+			// is not somewhere one needs to be kept.
+			remote.user = parsed.User.Username()
+		}
+		return remote, nil
 	}
 
 	// A transport helper is spelled `name::address` and never reaches the
@@ -83,7 +176,13 @@ func ParseRemote(raw string) (Remote, error) {
 		// colon is part of a path rather than a host separator, and a
 		// single-letter host is a Windows drive.
 		if !strings.Contains(host, "/") && repository != "" && len(host) > 1 && !strings.HasPrefix(repository, "\\") {
-			return Remote{url: value}, nil
+			user, machine, at := strings.Cut(host, "@")
+			if !at {
+				user, machine = "", host
+			}
+			// No port: scp-style syntax has nowhere to put one, which is why
+			// a Host block in ~/.ssh/config is how people move these off 22.
+			return Remote{url: value, transport: TransportSSH, host: machine, user: user}, nil
 		}
 	}
 	return Remote{}, &Error{

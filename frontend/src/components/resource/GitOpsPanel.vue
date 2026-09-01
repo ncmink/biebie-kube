@@ -14,21 +14,21 @@
  * file and what Argo CD applied.
  *
  * No Kubernetes knowledge lives here. Whether `replicas: 1` is a default, which
- * fields a controller owns, what to call a path — all of it is decided in Go,
- * where it can be tested, and arrives on each difference as a class, a label and
- * a reason.
+ * fields a controller owns, what to call a path, and why a difference exists —
+ * all of it is decided in Go, where it can be tested, and arrives on each
+ * difference as a class, a label, a reason and an explanation.
  */
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { api, copyToClipboard, message } from '@/api'
+import DifferenceCard from '@/components/resource/DifferenceCard.vue'
 import GitAccessDiagnosis from '@/components/resource/GitAccessDiagnosis.vue'
 import { useUIStore } from '@/stores/ui'
 import {
   ComparisonBlocker,
   ComparisonState,
   DifferenceClass,
-  DifferenceKind,
   GitRenderer,
   ManifestCertainty,
   OwnershipConfidence,
@@ -46,6 +46,8 @@ const error = ref('')
 const sourceState = ref<SourceState | null>(null)
 const searching = ref(false)
 const searchError = ref('')
+// Source YAML and system-managed rows start closed. The finding is the
+// comparison; the file and the controller noise are one press away.
 const contentOpen = ref(false)
 const diffOpen = ref(false)
 const outputOpen = ref(false)
@@ -267,10 +269,9 @@ async function compare() {
 /**
  * summary is the one line the comparison leads with.
  *
- * It counts only what the reader has to act on. The counting is the backend's,
- * not this component's: whether `replicas: 1` is a Kubernetes default is a
- * question about Kubernetes, and answering it here would put Kubernetes
- * semantics somewhere no test can reach them.
+ * The counts come from the backend, including how many differences a
+ * controller or an ignore rule already accounts for. This switch only chooses
+ * the words and the colour for those counts.
  *
  * "Unavailable" is deliberately not a failure colour. A Helm Application will
  * never have a file to compare against, and a panel that shows that in red
@@ -286,13 +287,32 @@ const summary = computed(() => {
         label: result.systemManaged ? 'No meaningful differences' : 'No differences',
         tone: 'text-ok',
       }
-    case ComparisonState.ComparisonDiffers:
+    case ComparisonState.ComparisonDiffers: {
+      const unexplained = result.meaningful - (result.explained ?? 0)
+      if (unexplained > 0) {
+        return {
+          label: `${unexplained} unexplained ${unexplained === 1 ? 'difference' : 'differences'}`,
+          tone: 'text-warn',
+        }
+      }
+      const managed = meaningful.value.some(
+        (difference) => difference.explanation?.cause === 'controller',
+      )
+      if (result.explained > 0) {
+        return {
+          label: `${result.explained} ${managed ? 'controller-managed' : 'expected managed'} ${
+            result.explained === 1 ? 'difference' : 'differences'
+          }`,
+          tone: 'text-info',
+        }
+      }
       return {
         label: `${result.meaningful} meaningful ${
           result.meaningful === 1 ? 'difference' : 'differences'
         }`,
         tone: 'text-warn',
       }
+    }
     default:
       return { label: 'Unavailable', tone: 'text-ink-muted' }
   }
@@ -312,6 +332,12 @@ const disagreement = computed(() => {
   const state = comparison.value?.state
   if (!sync || !state || state === ComparisonState.ComparisonUnavailable) return ''
   if (sync === 'Synced' && state === ComparisonState.ComparisonDiffers) {
+    // Explained rows already say what this comparison knows about Synced.
+    // The generic sentence is for differences nothing here accounted for.
+    const unexplained = meaningful.value.filter(
+      (difference) => !difference.explanation || difference.explanation.cause === 'unknown',
+    )
+    if (unexplained.length === 0 && meaningful.value.length > 0) return ''
     return 'Argo CD reports this Application as synced. It renders and normalises its sources differently, so the two can disagree.'
   }
   if (sync === 'OutOfSync' && state === ComparisonState.ComparisonEqual) {
@@ -350,24 +376,6 @@ function clearCopied() {
 }
 
 onUnmounted(clearCopied)
-
-/**
- * side says where a one-sided difference lives.
- *
- * "Only in the cluster" and no more. Whether it got there by drift, by a
- * webhook or by a controller is not something this comparison can know, and a
- * card that said "someone changed the cluster" would be inventing a culprit.
- */
-function side(kind: DifferenceKind): string {
-  switch (kind) {
-    case DifferenceKind.DifferenceAddedInLive:
-      return 'Only in the cluster'
-    case DifferenceKind.DifferenceMissingInLive:
-      return 'Only in the source'
-    default:
-      return ''
-  }
-}
 
 function openApplication() {
   const target = app.value
@@ -485,9 +493,14 @@ function openApplication() {
           -->
           <p class="text-[10px] uppercase tracking-wider text-ink-faint">Source</p>
           <p class="mt-1 break-all font-mono text-xs text-ink">{{ manifestName }}</p>
-          <p class="mt-0.5 break-all font-mono text-[10px] text-ink-faint">
-            {{ manifestDirectory }}<span v-if="commit"> @ {{ commit }}</span>
-            <span v-if="located.document > 0"> · document {{ located.document + 1 }}</span>
+          <p v-if="manifestDirectory" class="mt-0.5 break-all font-mono text-[10px] text-ink-faint">
+            {{ manifestDirectory }}
+          </p>
+          <p class="mt-0.5 font-mono text-[10px] text-ink-faint">
+            <template v-if="commit">@ {{ commit }}</template>
+            <span v-if="located.document > 0">
+              <span v-if="commit"> · </span>document {{ located.document + 1 }}</span
+            >
           </p>
 
           <div v-if="comparison" class="mt-3 border-t border-line pt-3">
@@ -499,43 +512,12 @@ function openApplication() {
             </p>
 
             <ul v-if="meaningful.length" class="mt-2.5 space-y-2">
-              <li
+              <DifferenceCard
                 v-for="difference in meaningful"
                 :key="difference.path"
-                class="rounded-md bg-surface-2 px-2.5 py-2"
-              >
-                <p class="text-[11px] font-medium text-ink">
-                  {{ difference.label || difference.path }}
-                </p>
-                <p
-                  v-if="difference.label && difference.subject"
-                  class="break-all font-mono text-[10px] text-ink-faint"
-                >
-                  {{ difference.subject }}
-                </p>
-
-                <p v-if="difference.redacted" class="mt-1.5 text-[11px] text-ink-muted">
-                  Value differs. This kind's values are not shown here.
-                </p>
-
-                <template v-else-if="side(difference.kind)">
-                  <p class="mt-1.5 text-[10px] uppercase tracking-wider text-ink-faint">
-                    {{ side(difference.kind) }}
-                  </p>
-                  <p class="break-all font-mono text-[11px] text-ink-muted">
-                    {{ difference.source || difference.live }}
-                  </p>
-                </template>
-
-                <template v-else>
-                  <p class="mt-1.5 text-[10px] uppercase tracking-wider text-ink-faint">Source</p>
-                  <p class="break-all font-mono text-[11px] text-ink-muted">
-                    {{ difference.source }}
-                  </p>
-                  <p class="mt-1 text-[10px] uppercase tracking-wider text-ink-faint">Live</p>
-                  <p class="break-all font-mono text-[11px] text-ink-muted">{{ difference.live }}</p>
-                </template>
-              </li>
+                :difference="difference"
+                :argo-sync="app?.sync"
+              />
             </ul>
 
             <!--
@@ -547,8 +529,13 @@ function openApplication() {
                 class="mt-2.5 text-xs text-brand hover:underline"
                 @click="diffOpen = !diffOpen"
               >
-                {{ diffOpen ? 'Hide' : 'Show' }} {{ systemManaged.length }} system-managed
-                {{ systemManaged.length === 1 ? 'difference' : 'differences' }}
+                {{
+                  diffOpen
+                    ? 'Hide system-managed differences'
+                    : `${systemManaged.length} system-managed ${
+                        systemManaged.length === 1 ? 'difference' : 'differences'
+                      } hidden`
+                }}
               </button>
 
               <ul v-if="diffOpen" class="mt-2 space-y-1.5">

@@ -139,6 +139,10 @@ func (s *Service) Compare(ctx context.Context, clusterID string, ref domain.Reso
 
 	out.Search = describeSearch(out.Search, found, refused)
 	out.Comparison = compareAgainst(out.Search, live, refused)
+	if live != nil && out.Comparison.State != domain.ComparisonUnavailable &&
+		hasReplicaDifference(out.Comparison.Differences) {
+		out.Comparison = enrich(out.Comparison, s.gather(ctx, clusterID, ownership, live))
+	}
 	return out, nil
 }
 
@@ -234,13 +238,14 @@ func compareAgainst(search domain.ManifestSearch, live *subject, refused refusal
 	// semantically equal field in a disclosure instead of normalising it away
 	// would still be showing the reader something untrue, only more quietly.
 	normalise(current, source)
-	out := tally(classify(compare(source, current, live.sensitive)))
+	kind, _ := current["kind"].(string)
+	differences := markImplicit(classify(compare(source, current, live.sensitive)), source, kind)
+	out := tally(differences)
 
 	switch {
 	case out.Meaningful > 0:
 		out.State = domain.ComparisonDiffers
-		out.Reason = fmt.Sprintf("%d %s between the source manifest and the object in the cluster.",
-			out.Meaningful, plural(out.Meaningful, "difference", "differences"))
+		out.Reason = differReason(out)
 	case out.SystemManaged > 0:
 		// Not "identical". An object carrying its controller's revision
 		// annotation does not match its manifest and never will, and a panel
@@ -264,6 +269,12 @@ func tally(differences []domain.StateDifference) domain.StateComparison {
 	for _, difference := range differences {
 		if difference.Class == domain.DifferenceMeaningful {
 			out.Meaningful++
+			if explained(difference) {
+				out.Explained++
+			}
+			if difference.Explanation != nil && difference.Explanation.Attention == domain.AttentionReview {
+				out.NeedsAttention++
+			}
 			ordered = append(ordered, difference)
 		}
 		out.Redacted = out.Redacted || difference.Redacted
@@ -277,6 +288,15 @@ func tally(differences []domain.StateDifference) domain.StateComparison {
 
 	out.Differences = ordered
 	return out
+}
+
+func hasReplicaDifference(differences []domain.StateDifference) bool {
+	for _, difference := range differences {
+		if difference.Path == "spec.replicas" {
+			return true
+		}
+	}
+	return false
 }
 
 func unavailable(blocker domain.ComparisonBlocker, reason string) domain.StateComparison {

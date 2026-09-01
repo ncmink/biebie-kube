@@ -295,6 +295,186 @@ const (
 	GroupController DifferenceGroup = "controller"
 )
 
+// The three concepts below are deliberately separate, and collapsing them is
+// the mistake this part of the model exists to prevent.
+//
+// Normalisation says two representations mean the same thing, and removes the
+// difference before anybody sees it. Classification says a difference exists
+// and belongs to a known category. Explanation says a difference exists
+// because a named controller owns the field or a named rule ignores it.
+//
+// Only the third is allowed to name a culprit, and only when the cluster was
+// asked and answered. An explanation that cannot be reached from evidence is
+// not written: "no controller ownership was identified" is a true sentence and
+// "somebody probably scaled it" is not.
+
+// DifferenceCause is what accounts for a difference, when anything does.
+type DifferenceCause string
+
+// The causes, in order of how much they settle.
+const (
+	// CauseUnknown is the default and stays the default. Nothing found in the
+	// cluster accounts for the difference, which is not the same as saying
+	// nothing does — it is the honest report of a search that came back empty.
+	CauseUnknown DifferenceCause = "unknown"
+
+	// CauseArgoIgnored is a field an Argo CD Application is configured to
+	// ignore, with no controller found that would be writing it. It explains
+	// why Argo CD can report Synced and explains nothing about the live value.
+	CauseArgoIgnored DifferenceCause = "argoIgnored"
+
+	// CauseController is another controller owning the field: a
+	// HorizontalPodAutoscaler writing replicas, and later its equivalents. The
+	// difference is the system working rather than drift.
+	CauseController DifferenceCause = "controller"
+)
+
+// ExplanationConfidence says how firmly the evidence supports what is claimed.
+//
+// It is carried on each piece of evidence as well as on the explanation as a
+// whole, because they are not the same statement: an HPA that targets this
+// object is a confirmed fact about ownership, and a manager name read out of
+// managedFields is a fact that supports it without establishing it.
+type ExplanationConfidence string
+
+// Confidence levels, weakest first.
+const (
+	// ConfidenceUnknown is evidence that settles nothing. An Argo CD ignore
+	// rule with no controller behind it is this: real, checkable, and silent
+	// about what writes the value.
+	ConfidenceUnknown ExplanationConfidence = "unknown"
+
+	// ConfidenceSupporting strengthens an explanation without establishing it.
+	// managedFields is the example the distinction was written for.
+	ConfidenceSupporting ExplanationConfidence = "supporting"
+
+	// ConfidenceConfirmed is a fact read off an object in the cluster that
+	// establishes the claim by itself, the way an HPA naming this Deployment
+	// as its scale target establishes that something else owns replicas.
+	ConfidenceConfirmed ExplanationConfidence = "confirmed"
+)
+
+// DifferenceAttention says whether an explained difference still wants a
+// person, which is a different question from what caused it.
+//
+// They are separate fields because they genuinely come apart. Replicas owned
+// by an autoscaler that Argo CD is not configured to ignore has a confirmed
+// controller cause and is still worth somebody's afternoon, and marking it
+// "explained, nothing to see" because the cause is known would be the panel
+// talking a reader out of a real problem.
+type DifferenceAttention string
+
+// The attention levels.
+const (
+	// AttentionNone is a difference the cluster accounts for and nobody needs
+	// to act on.
+	AttentionNone DifferenceAttention = "none"
+
+	// AttentionReview is worth reading. It is not an error and must not be
+	// coloured as one: the two situations it covers — a controller Argo CD
+	// does not ignore, and an ignore rule with no controller behind it — are
+	// both things that are often deliberate.
+	AttentionReview DifferenceAttention = "review"
+)
+
+// EvidenceKind names where one piece of evidence was read from, so the UI can
+// group it and a reader can go and check it.
+type EvidenceKind string
+
+// The evidence this slice can produce.
+const (
+	// EvidenceHPATarget is a HorizontalPodAutoscaler whose scale target is
+	// this object.
+	EvidenceHPATarget EvidenceKind = "hpaTarget"
+
+	// EvidenceArgoIgnore is an entry in the owning Application's
+	// ignoreDifferences that applies to this object and this field.
+	EvidenceArgoIgnore EvidenceKind = "argoIgnore"
+
+	// EvidenceFieldOwner is a manager that metadata.managedFields records as
+	// owning the differing field itself.
+	EvidenceFieldOwner EvidenceKind = "fieldOwner"
+)
+
+// EvidenceFact is one raw value kept exactly as the cluster reported it.
+//
+// Facts are carried rather than folded into the summary sentence because the
+// sentence is this application's wording and the numbers are the cluster's. An
+// engineer who does not believe the sentence can read the numbers under it.
+type EvidenceFact struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// DifferenceEvidence is one checkable reason behind an explanation.
+type DifferenceEvidence struct {
+	Kind       EvidenceKind          `json:"kind"`
+	Confidence ExplanationConfidence `json:"confidence"`
+
+	// Summary is the one line the panel shows for this piece on its own.
+	Summary string `json:"summary"`
+
+	// Subject is what the evidence is about — the autoscaler's name, the
+	// manager's name — so the UI can lead with it rather than parse it back
+	// out of the sentence.
+	Subject string `json:"subject,omitempty"`
+
+	Facts []EvidenceFact `json:"facts,omitempty"`
+}
+
+// DifferenceExplanation is why a difference exists, when the cluster holds
+// enough to say.
+//
+// It is structured rather than a sentence because the parts are read in a
+// particular order — does this need attention, who manages the field, why the
+// source differs, why Argo CD can still say Synced, and only then the
+// technical detail — and a paragraph cannot be laid out that way.
+type DifferenceExplanation struct {
+	Cause      DifferenceCause       `json:"cause"`
+	Confidence ExplanationConfidence `json:"confidence"`
+	Attention  DifferenceAttention   `json:"attention"`
+
+	// Summary is the sentence the panel leads with. It is written here rather
+	// than in the frontend because what may honestly be said about an HPA is
+	// Kubernetes knowledge, and Kubernetes knowledge in a Vue component is
+	// Kubernetes knowledge nobody can test.
+	Summary string `json:"summary"`
+
+	// Note is a secondary sentence: true, but not the finding. An Application
+	// with no ignoreDifferences rule for this field, while Argo CD still
+	// reports Synced, is the example it exists for — saying that up front
+	// would bury the HPA under a speculation about Argo CD.
+	Note string `json:"note,omitempty"`
+
+	// ManagedBy names the controller that owns the field, in the form a person
+	// reads it: "HorizontalPodAutoscaler / super-report". Empty when no
+	// controller was identified, which is a state the panel says out loud.
+	ManagedBy string `json:"managedBy,omitempty"`
+
+	// ApplicationIgnore is what this analysis can say about
+	// spec.ignoreDifferences on the owning Application, for this field.
+	//
+	// applies — a rule covering the field was found
+	// absent  — the Application was read and no applicable rule was found
+	// unread  — the Application could not be read
+	// empty   — Argo CD was not consulted
+	//
+	// Absent is not proof that Argo CD ignores nothing. Global ignore rules
+	// and other normalisation were not inspected.
+	ApplicationIgnore string `json:"applicationIgnore,omitempty"`
+
+	Evidence []DifferenceEvidence `json:"evidence,omitempty"`
+
+	// Unchecked names the questions this analysis could not answer: a list
+	// that failed, a rule written in a form it does not evaluate.
+	//
+	// It exists so that an incomplete analysis cannot masquerade as a
+	// complete one. A missing answer changes what may be claimed — an ignore
+	// rule this code cannot read is not an ignore rule that is absent — and
+	// the difference between the two is the whole value of the panel.
+	Unchecked []string `json:"unchecked,omitempty"`
+}
+
 // StateDifference is one field where Git and the cluster disagree.
 type StateDifference struct {
 	// Path names the field the way a person would say it out loud, with keyed
@@ -330,9 +510,27 @@ type StateDifference struct {
 	Source string `json:"source,omitempty"`
 	Live   string `json:"live,omitempty"`
 
+	// SourceImplicit marks a Source value the manifest does not contain: the
+	// field is absent from the file, and Source is the value Kubernetes uses
+	// when it is absent.
+	//
+	// It is not rendered as Git having declared that value. An omitted
+	// Deployment replica count is often intentional — an autoscaler owns
+	// scaling — and showing "implicit 1" would put a desire in the repository
+	// that is not there. The panel says omitted, then the default, separately.
+	SourceImplicit bool `json:"sourceImplicit,omitempty"`
+
 	// Redacted marks a difference whose values were deliberately withheld. The
 	// field differs, and what it differs by is not something the UI is told.
 	Redacted bool `json:"redacted,omitempty"`
+
+	// Explanation is what the cluster says accounts for this difference,
+	// absent when nothing was found or when the analysis could not run.
+	//
+	// Absent is a meaningful state and is not an error: it is the difference
+	// between "an autoscaler owns this field" and "nothing here accounts for
+	// this", and the second is what the reader needs to see plainly.
+	Explanation *DifferenceExplanation `json:"explanation,omitempty"`
 }
 
 // ComparisonState is the outcome of holding desired state against live state.
@@ -357,7 +555,9 @@ const (
 	// untruth that costs a reader their trust in everything else on screen.
 	ComparisonEqual ComparisonState = "equal"
 
-	// ComparisonDiffers means at least one difference is unaccounted for.
+	// ComparisonDiffers means at least one meaningful difference remains.
+	// Some of those may be explained by a controller or an ignore rule; the
+	// counts on this type say which.
 	ComparisonDiffers ComparisonState = "differs"
 )
 
@@ -424,6 +624,18 @@ type StateComparison struct {
 	// that eventually disagrees with itself.
 	Meaningful    int `json:"meaningful"`
 	SystemManaged int `json:"systemManaged"`
+
+	// Explained and NeedsAttention split the meaningful differences by what
+	// the cluster was able to say about them, and they are not complements of
+	// each other: a difference can be explained by a controller and still want
+	// a person, which is what makes "explained" and "fine" different words.
+	//
+	// Both are counted here for the same reason the two above are. The summary
+	// line is one value rather than something the frontend derives by
+	// filtering, because a count computed in two places is a count that
+	// eventually disagrees with itself.
+	Explained      int `json:"explained"`
+	NeedsAttention int `json:"needsAttention"`
 
 	// Redacted says at least one difference had its values withheld, so the
 	// panel can explain the blanks rather than let them look like a bug.

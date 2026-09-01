@@ -184,6 +184,15 @@ data: {DB_PASSWORD: bGl2ZQ==, API_TOKEN: c2Vjb25k}
 		everything := strings.Join([]string{
 			difference.Source, difference.Live, difference.Label, difference.Subject, difference.Reason,
 		}, " ")
+		if difference.Explanation != nil {
+			everything += difference.Explanation.Summary + difference.Explanation.ManagedBy + difference.Explanation.Note
+			for _, item := range difference.Explanation.Evidence {
+				everything += item.Summary + item.Subject
+				for _, fact := range item.Facts {
+					everything += fact.Name + fact.Value
+				}
+			}
+		}
 		if strings.Contains(everything, "ZGVzaXJlZA") || strings.Contains(everything, "bGl2ZQ") {
 			t.Fatalf("a secret value crossed the boundary: %+v", difference)
 		}

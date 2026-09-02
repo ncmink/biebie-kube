@@ -1,10 +1,10 @@
 {
 	"fixed": {
-		"file_version": "0.2.9"
+		"file_version": "0.2.10"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "0.2.9",
+			"ProductVersion": "0.2.10",
 			"CompanyName": "Biebie",
 			"FileDescription": "Kubernetes workspace for the biebie.net family.",
 			"LegalCopyright": "© 2026, Biebie",

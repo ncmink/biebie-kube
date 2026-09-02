@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"biebie-kube/internal/domain"
+	"biebie-kube/internal/manifest"
 )
 
 // ResourceService reads and edits Kubernetes objects.
@@ -52,29 +53,65 @@ func (s *ResourceService) ListRelatedResources(ctx context.Context, clusterID st
 }
 
 // GetResourceYAML returns a resource as editable YAML.
+//
+// A read on its own, for the places that want to look at a manifest without
+// opening an editing session against it.
 func (s *ResourceService) GetResourceYAML(ctx context.Context, clusterID string, ref domain.ResourceRef) (string, error) {
 	yaml, err := s.core.manifests.Read(ctx, clusterID, ref)
 	return yaml, describe(err)
 }
 
-// YAMLDiff is the pair the editor compares before anything is applied.
-type YAMLDiff struct {
-	Current string `json:"current"`
-	Edited  string `json:"edited"`
+// OpenResourceEditor captures the object an editor will be compared against.
+//
+// The snapshot it returns is Original for the whole life of that editor. The
+// frontend holds it and never asks for it again: a second read would be a
+// second moment, and the editor would then be showing a difference against
+// something other than what it opened with.
+func (s *ResourceService) OpenResourceEditor(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.EditSession, error) {
+	session, err := s.core.manifests.OpenSession(ctx, clusterID, ref)
+	return session, describe(err)
 }
 
-// DiffResourceYAML compares an edit with what the cluster currently holds.
-func (s *ResourceService) DiffResourceYAML(ctx context.Context, clusterID string, ref domain.ResourceRef, edited string) (YAMLDiff, error) {
-	current, normalised, err := s.core.manifests.Diff(ctx, clusterID, ref, edited)
-	if err != nil {
-		return YAMLDiff{}, describe(err)
-	}
-	return YAMLDiff{Current: current, Edited: normalised}, nil
+// CompareResourceEdit holds an editor's original snapshot against its current
+// text.
+//
+// It touches no cluster and is the same function the tests exercise. Whether a
+// session is dirty, and whether its edits would actually change the object, are
+// Kubernetes-adjacent judgements, and judgements in a Vue component are
+// judgements nobody can test.
+func (s *ResourceService) CompareResourceEdit(original, edited string) domain.EditComparison {
+	return manifest.CompareEdit(original, edited)
+}
+
+// CheckResourceFreshness reports whether the live object moved since an editor
+// opened at the given version.
+//
+// Asked before a write rather than watched during one, so the answer arrives
+// as a choice the person makes rather than as an editor that rewrote itself
+// while they were typing.
+func (s *ResourceService) CheckResourceFreshness(
+	ctx context.Context,
+	clusterID string,
+	ref domain.ResourceRef,
+	resourceVersion string,
+) (domain.EditFreshness, error) {
+	freshness, err := s.core.manifests.Freshness(ctx, clusterID, ref, resourceVersion)
+	return freshness, describe(err)
 }
 
 // ApplyResourceYAML writes an edited manifest back to the cluster.
-func (s *ResourceService) ApplyResourceYAML(ctx context.Context, clusterID string, ref domain.ResourceRef, edited string) (domain.ApplyResult, error) {
-	result, err := s.core.manifests.Apply(ctx, clusterID, ref, edited)
+//
+// resourceVersion is the one the editor opened at, not the one the cluster
+// holds now. It is what the API server checks the write against, and sending
+// the current version instead would be a concurrency guard that can never fire.
+func (s *ResourceService) ApplyResourceYAML(
+	ctx context.Context,
+	clusterID string,
+	ref domain.ResourceRef,
+	edited string,
+	resourceVersion string,
+) (domain.ApplyResult, error) {
+	result, err := s.core.manifests.Apply(ctx, clusterID, ref, edited, resourceVersion)
 	return result, describe(err)
 }
 
@@ -93,6 +130,15 @@ func (s *ResourceService) DeleteResource(ctx context.Context, clusterID string, 
 // These are guarded the same way a delete is, and for the same reason: the
 // mistake worth preventing is not scaling the wrong deployment, it is scaling
 // the right one in the wrong customer's cluster.
+//
+// They are deliberately not gated on GitOps ownership, which the YAML editor
+// and Create are. These are operational verbs: they belong to the moment, and
+// an object being managed from a repository is not a reason to be unable to
+// restart it during an incident. The uncomfortable member of the list is
+// scale, which writes a field a repository may declare and which Argo CD will
+// take back on the next reconcile — that is a fix for the next ten minutes,
+// and it is treated as one rather than blocked.
+
 func (s *ResourceService) PerformResourceAction(
 	ctx context.Context,
 	clusterID string,

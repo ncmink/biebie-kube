@@ -104,16 +104,16 @@ type CreateAvailability struct {
 	// nothing to match against and must not be answered.
 	NeedsNamespace bool `json:"needsNamespace,omitempty"`
 
-	// Allowed is direct creation being offered at all, which in this slice
-	// means nothing was found claiming this target.
+	// Ownership is the GitOps half of the answer, in the same shape the live
+	// editor's gate uses. It is the whole refusal in structured form — status,
+	// claim, why it could not be settled, and what was asked — so the screen
+	// renders a decision rather than making one.
+	Ownership MutationGate `json:"ownership"`
+
+	// Allowed is direct creation being offered at all. It is the ownership
+	// gate and nothing else: which surfaces are on offer is Modes, and a
+	// missing namespace is NeedsNamespace.
 	Allowed bool `json:"allowed"`
-
-	// Managed is the GitOps side of that answer, kept separate so the UI can
-	// explain a refusal instead of hiding the button.
-	Managed bool `json:"managed"`
-
-	// App names the Application that claims the target, when one does.
-	App *ArgoApp `json:"app,omitempty"`
 
 	// Reason is the sentence shown either way. It never says operating
 	// directly is correct: not finding an owner is not proof there is none.

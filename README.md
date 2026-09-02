@@ -490,6 +490,92 @@ Nothing here writes to Git yet. Establishing that the relationship is
 trustworthy comes first, because create, edit and delete are all built on top
 of it and each one would inherit a wrong answer.
 
+### Lack of visibility is not proof of lack of ownership
+
+Once that answer decides whether a write is offered, the interesting case stops
+being "who owns this" and becomes "what if we could not find out". There are
+three answers and the third is not a shade of the second:
+
+```text
+Managed     an applicable Argo CD claim was found
+Unmanaged   the check completed, and found none
+Unknown     the check did not complete
+```
+
+Every way of failing to look lands in the third: a 403 listing Applications, a
+timeout, an API error, a listing that ran out of pages before it ran out of
+Applications, a namespace that could be read beside one that could not. None of
+them is folded into Unmanaged, because Unmanaged opens a gate. An account with
+`create configmaps` and no `list applications.argoproj.io` is an ordinary
+configuration, and reading its silence as an absence is how an object appears in
+a namespace a repository owns and disappears at the next reconcile.
+
+```text
+Managed    ──▶ direct write blocked, the repository is named
+Unmanaged  ──▶ direct write offered
+Unknown    ──▶ direct write blocked, the failed probe is named
+Loading    ──▶ direct write blocked
+```
+
+Loading is on that list deliberately. A screen that renders Unmanaged for the
+second before the answer arrives is a screen somebody can press Create on, so
+the state is declared in Go alongside the other three, the gate is closed unless
+something explicitly opened it, and the panel says "Checking GitOps ownership…"
+rather than guessing.
+
+**The navigator cannot change the answer.** This is the safety bug the section
+exists to rule out:
+
+```text
+Argo CD installed in    argocd
+the Deployment lives in reporting
+the navigator shows     reporting
+```
+
+Scope ownership to what the UI is displaying and the owning Application is
+invisible, the Deployment reads as unmanaged, and a direct write is offered on
+the strength of a dropdown. So the Application search is cluster-wide, and the
+only namespace it will ever accept is the target's own — as a fallback for when
+the cluster-wide read is refused, which is reported as the partial search it is.
+Nothing the navigator holds is passed in, and there is no parameter to pass it
+through.
+
+The search does not assume `argocd` either. Applications are found through the
+API by resource, wherever the installation put them, which is also what makes
+"applications in any namespace" work without configuration. An
+ApplicationSet-generated Application is a concrete Application and is treated as
+one; the generator is reported beside it, because editing a generated
+Application is overwritten on the next reconcile and that is worth knowing.
+
+**Partial results are not absences.** A listing is only allowed to conclude
+"nothing claims this" when it can say it saw everything. Pagination is followed
+to the end and reports itself truncated if it hits the page budget first; a
+namespace-scoped fallback says which namespace it asked about. Positive evidence
+is the asymmetric case and survives an incomplete search: an Application that
+lists this object lists it whatever else could not be read.
+
+**A refusal is answered quickly and remembered.** A denied permission is not
+going to start working in the next few seconds, so ownership results are cached
+per cluster — briefly for an answer, longer for a refusal — and a non-admin
+account is never left waiting on a check that was never going to pass. Nothing
+retries a 403.
+
+**A failed check takes away the write and nothing else.** Ownership is safety
+enrichment, not a connection. Properties, events, logs, pod details and YAML all
+stay readable under Unknown; the YAML editor still opens, read-only. Only the
+mutations whose safety depends on the answer are withheld, and the panel says
+which probe failed — resource, verb, scope, result — rather than leaving somebody
+to read an error string.
+
+Operational verbs are deliberately outside all of this. Logs, exec, port forward,
+restart and scale are not routed through the ownership gate, and a
+GitOps-managed object does not become unusable in an incident. The boundary is
+the one drawn further up this file: desired-state editing goes to Git, the
+moment goes to the cluster. Where that gets uncomfortable — a live `scale` on a
+managed Deployment is an operational verb writing a field a repository declares,
+and Argo CD will take it back — the honest answer is that it is a fix for the
+next ten minutes, and it is treated as one rather than blocked.
+
 ---
 
 ## The repository is read with the engineer's own git
@@ -562,6 +648,104 @@ have the information to make. It shows the candidates and stops.
 What is found is reported against the commit it was read at, not the branch
 name that was asked for. `main` is a different tree tomorrow, and an answer
 nobody can check afterwards is not much of an answer.
+
+---
+
+## Original vs Edited
+
+Two comparisons live in this application and they answer opposite questions:
+
+```text
+Source vs Live      what a repository declares, against the cluster
+Original vs Edited  the cluster as it was when this editor opened,
+                    against what has been typed since
+```
+
+The first says whether the cluster has drifted. The second says what one person
+is about to do, and it is the one the YAML editor shows, beside the button that
+does it. Editing a live object without it is typing into a wall of text and
+pressing Apply.
+
+```text
+Edit  Changes 3        2 changes, +2 −2        [ Revert all ]  [ Review & apply ]
+
+ORIGINAL                          EDITED
+  replicas: 3                       replicas: 5
+    periodSeconds: 10                 periodSeconds: 15
+```
+
+It is Monaco's own diff editor rather than a custom component, side by side, and
+the right-hand side is the same document the Edit tab holds — switching tabs
+rebuilds the editor and never the text, so nothing is lost mid-edit.
+
+**Original is a snapshot and stays one.** It is captured once, when the editor
+opens, and no watch event, controller write or external apply replaces it.
+That is the whole meaning of the comparison: "what have I changed since I opened
+this?" cannot be answered by a value that moves. A live change is a real fact
+and a different one, and it surfaces before the write as the conflict it is.
+
+**Revert all** restores that snapshot and touches nothing else. It calls no
+binding, so there is nothing in it that could reach a cluster; what it undoes is
+typing, which is all that has happened.
+
+Two questions are answered about the difference rather than one, because they
+come apart:
+
+```text
+Dirty       the text differs — what the "modified" marker means
+Equivalent  both sides parse to the same object
+```
+
+A manifest whose keys were reordered is both at once, and saying so is more
+useful than either half alone: the editor is honestly modified, and applying it
+would change nothing. Equivalence is judged on the parsed objects rather than on
+re-encoded text, so it does not quietly become a question about this
+application's YAML writer. Both are computed in Go, which is where they can be
+tested, and the editor renders the answer.
+
+### The version the editor opened at is the one that guards the write
+
+The concurrency protection had a hole worth describing, because the shape of it
+is easy to reproduce. The editor stripped `resourceVersion` out of the manifest
+it showed — correctly; it is server-managed noise, and a token somebody can
+delete while tidying up is not a token. But the apply then read the object again
+and stamped the *current* version onto the write. Every write succeeded by
+definition, and the interface implied something was being checked.
+
+So the version is captured with the snapshot, carried on the session rather than
+in the text, and sent back with the write:
+
+```text
+open   ──▶ snapshot + resourceVersion 88421
+edit
+apply  ──▶ live is 88999
+       ──▶ nothing is written
+```
+
+Before the confirmation appears, the live version is read and compared. If it
+moved, the write is not attempted and the choice is offered rather than made:
+
+```text
+This object changed in the cluster after the editor was opened.
+[ Refresh original ]  [ Cancel ]
+```
+
+Refreshing starts a new session against the object as it now stands, and says
+plainly that it does not merge the edits in. Nothing is rebased automatically —
+guessing how somebody's replica count should combine with someone else's is not
+a decision to make on their behalf. Apply itself refuses a write that carries no
+version at all, rather than falling back to the live one.
+
+The other guards are unchanged and sit in the same order: ownership first — a
+managed or unverifiable object is not edited through a cluster — then target
+identity, since a manifest renamed in the editor would create a second object
+rather than update the one on screen, then concurrency. All three are in Go, so
+a screen that is wrong about any of them cannot get past them. Production still
+asks for the object's name to be typed.
+
+None of this applies to **Create Resource**. An object that does not exist has
+no original, no version to guard and nothing to diff, so that flow stays what it
+was: author, preview the manifest that will be sent, create.
 
 ---
 

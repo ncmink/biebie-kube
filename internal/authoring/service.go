@@ -84,10 +84,14 @@ func (s *Service) Availability(ctx context.Context, clusterID, namespace, kind s
 		}
 	}
 
+	// The namespace here is the one the object would be created in, which the
+	// person chose in this dialog. It is not a search scope: the ownership
+	// check behind ClaimFor reads Applications across the whole cluster, so an
+	// Argo CD installed anywhere is found whatever the navigator is filtering.
 	claim := s.argo.ClaimFor(ctx, clusterID, argocd.Target{
 		Kind: resolved.kind, Namespace: namespace,
 	})
-	out := decide(claim, runtime)
+	out := decide(argocd.GateForClaim(claim), runtime)
 	out.ClusterID, out.Namespace, out.Kind = clusterID, namespace, kind
 	out.TargetKind, out.Namespaced = resolved.kind, resolved.namespaced
 	return out
@@ -99,18 +103,17 @@ func (s *Service) Availability(ctx context.Context, clusterID, namespace, kind s
 // be quietly wrong: a rule that let a create through on an unanswered
 // ownership check would look exactly like one that worked, right up until a
 // resource appeared in a namespace a repository owns.
-func decide(claim argocd.Claim, runtime domain.AuthoringRuntime) domain.CreateAvailability {
+//
+// The ownership half is not recomputed here. It arrives already decided, from
+// the one place that decides it for both creating and editing, so this
+// function cannot develop an opinion of its own about what "unknown" means.
+func decide(gate domain.MutationGate, runtime domain.AuthoringRuntime) domain.CreateAvailability {
 	out := domain.CreateAvailability{
-		Runtime: runtime,
-		App:     claim.App,
-		Managed: claim.Kind.Managed(),
-		Reason:  claim.Reason,
+		Runtime:   runtime,
+		Ownership: gate,
+		Reason:    gate.Reason,
 	}
-
-	// Only a completed check that found nothing opens the gate. ClaimUnknown
-	// is not an answer, and treating "we could not look" as "nothing is there"
-	// is the one mistake in this file nobody would notice until afterwards.
-	if claim.Kind != argocd.ClaimNone {
+	if !gate.Allowed {
 		return out
 	}
 
@@ -346,8 +349,8 @@ func (s *Service) Create(ctx context.Context, clusterID, namespace, manifest str
 			Namespace: obj.GetNamespace(),
 			Name:      obj.GetName(),
 		})
-		if claim.Kind.Managed() || claim.Kind == argocd.ClaimUnknown {
-			return domain.CreateOutcome{}, errors.New("nothing was created. " + claim.Reason)
+		if gate := argocd.GateForClaim(claim); !gate.Allowed {
+			return domain.CreateOutcome{}, errors.New("nothing was created. " + gate.Reason)
 		}
 	}
 

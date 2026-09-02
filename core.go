@@ -125,7 +125,6 @@ func NewCore() (*Core, error) {
 	// knows which table that changes and what to send for it.
 	core.clusters.OnResources(core.resources.OnResourceChange)
 
-	core.manifests = manifest.NewService(core.clusters, core.resources)
 	core.logs = logs.NewService(core.clusters, events)
 	core.terminals = terminal.NewService(core.clusters, events)
 	core.forwards = portforward.NewService(core.clusters, events)
@@ -134,6 +133,13 @@ func NewCore() (*Core, error) {
 	// service borrows the one that already owns them rather than dialling a
 	// tunnel the port-forward panel would know nothing about.
 	core.argocd = argocd.NewService(core.clusters, core.forwards)
+
+	// The manifest editor is built after Argo CD rather than before it because
+	// it asks the same ownership question the create path does. Editing an
+	// object whose desired state is in a repository and creating one in a
+	// namespace a repository owns are the same rule, and a manifest service
+	// with nothing to ask would answer it differently.
+	core.manifests = manifest.NewService(core.clusters, core.resources, core.argocd)
 
 	// Repository mirrors live in the cache directory rather than beside
 	// data.json: they are large, they rebuild themselves from the remote, and

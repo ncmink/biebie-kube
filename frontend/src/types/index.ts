@@ -34,7 +34,11 @@ export {
   Kind,
   Layer,
   ManifestCertainty,
+  OwnershipClaim,
   OwnershipConfidence,
+  OwnershipProbeResult,
+  OwnershipStatus,
+  OwnershipUncertainty,
   PortForwardState,
   ProbeResult,
   ResourceAction,
@@ -73,6 +77,9 @@ export type {
   Diagnosis,
   DifferenceEvidence,
   DifferenceExplanation,
+  EditComparison,
+  EditFreshness,
+  EditSession,
   EvidenceFact,
   EventRow,
   GitAccess,
@@ -90,6 +97,8 @@ export type {
   ManifestProblem,
   ManifestResource,
   ManifestSearch,
+  MutationGate,
+  OwnershipProbe,
   StateComparison,
   StateDifference,
   PodDetail,
@@ -124,7 +133,7 @@ export type {
   ImportOptions as KubeconfigImport,
 } from '@bindings/biebie-kube/internal/kubeconfig/models'
 
-export type { AccessState, ClusterView, HandoffResult, YAMLDiff } from '@bindings/biebie-kube/models'
+export type { AccessState, ClusterView, HandoffResult } from '@bindings/biebie-kube/models'
 
 // AccessState is the name of two different things: the enum of connection
 // states in the protocol, and the installed-plus-status pair this application

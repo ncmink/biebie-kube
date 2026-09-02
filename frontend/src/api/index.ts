@@ -73,7 +73,13 @@ export const api = {
   inspectResource: ResourceService.InspectResource,
   relatedResources: list(ResourceService.ListRelatedResources),
   getYAML: ResourceService.GetResourceYAML,
-  diffYAML: ResourceService.DiffResourceYAML,
+
+  // Editing a live object. openEditor is what makes "Original" a snapshot
+  // rather than a moving target, and the version it returns is what applyYAML
+  // writes against — so the two are always used as a pair.
+  openEditor: ResourceService.OpenResourceEditor,
+  compareEdit: ResourceService.CompareResourceEdit,
+  editorFreshness: ResourceService.CheckResourceFreshness,
   applyYAML: ResourceService.ApplyResourceYAML,
   deleteResource: ResourceService.DeleteResource,
   performAction: ResourceService.PerformResourceAction,

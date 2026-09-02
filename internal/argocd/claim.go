@@ -25,38 +25,34 @@ import (
 // into it by hand is a resource nobody's repository knows about.
 
 // ClaimKind is how strongly Argo CD speaks for a target that does not exist.
-type ClaimKind string
+//
+// It is the domain's vocabulary rather than a second one. An alias rather than
+// a distinct type because the frontend has to render the value, and a package
+// type that had to be translated at the binding is a translation that can be
+// wrong in one direction only.
+type ClaimKind = domain.OwnershipClaim
 
-// The claims, weakest first.
+// The claims, weakest first. Their meanings are documented on the domain type.
 const (
-	// ClaimNone is nothing found. It is not proof that nothing exists: a
-	// cluster this account cannot list Applications in produces ClaimUnknown,
-	// and even a full listing says nothing about controllers that are not
-	// Argo CD.
-	ClaimNone ClaimKind = "none"
-
-	// ClaimUnknown is Argo CD not having been consulted — not installed, or
-	// not listable by this account. It is separated from ClaimNone because
-	// "we looked and found nothing" and "we could not look" lead to different
-	// sentences, and only one of them is an answer.
-	ClaimUnknown ClaimKind = "unknown"
-
-	// ClaimNamespace is an Application whose destination is this namespace.
-	ClaimNamespace ClaimKind = "namespace"
-
-	// ClaimObject is an Application that lists this exact object among its
-	// resources, which it does even while the object is Missing.
-	ClaimObject ClaimKind = "object"
+	ClaimNone      = domain.ClaimNone
+	ClaimUnknown   = domain.ClaimUnknown
+	ClaimNamespace = domain.ClaimNamespace
+	ClaimObject    = domain.ClaimObject
 )
-
-// Managed reports whether a claim should stop a direct write.
-func (k ClaimKind) Managed() bool { return k == ClaimNamespace || k == ClaimObject }
 
 // Claim is what Argo CD says about a target before it exists.
 type Claim struct {
 	Kind   ClaimKind
 	App    *domain.ArgoApp
 	Reason string
+
+	// Complete reports that the search behind this claim enumerated every
+	// Application in the cluster. A ClaimNone from an incomplete search is not
+	// an answer, which is why it never leaves ClaimFor as one.
+	Complete bool
+
+	Uncertainty domain.OwnershipUncertainty
+	Probes      []domain.OwnershipProbe
 }
 
 // Target is the object identity a claim is checked against.
@@ -77,27 +73,46 @@ type Target struct {
 // returned as an error. The caller is deciding whether to offer a direct
 // write, and "Argo CD could not be checked" is an answer that changes the
 // wording rather than one that should collapse the screen.
+//
+// The search is cluster-wide. The target's namespace is where the object would
+// land, not where its owner has to live: Argo CD is usually installed in a
+// namespace of its own, and scoping the Application listing to the target's
+// namespace — or worse, to the one the navigator happens to be showing — would
+// hide every owner in every ordinary installation.
 func (s *Service) ClaimFor(ctx context.Context, clusterID string, target Target) Claim {
-	if !s.Installed(clusterID) {
+	found := s.discover(ctx, clusterID, target.Namespace)
+
+	if found.installed == installNo {
 		return Claim{
-			Kind:   ClaimNone,
-			Reason: "Argo CD is not installed in this cluster, so no Application can be claiming this resource.",
+			Kind:     ClaimNone,
+			Complete: true,
+			Probes:   found.probes,
+			Reason: "Argo CD is not installed in this cluster, so no Application can be claiming this resource. " +
+				"Direct cluster changes are available; they will not be recorded in Git by Biebie Kube.",
 		}
 	}
 
-	client, err := s.clusters.Client(clusterID)
-	if err != nil {
-		return Claim{Kind: ClaimUnknown, Reason: "This cluster is not connected, so Argo CD ownership could not be checked."}
+	claim := resolveClaim(target, found.apps)
+	claim.Probes = found.probes
+
+	if found.complete {
+		claim.Complete = true
+		return claim
 	}
 
-	apps, err := listAll(ctx, client, applicationGVR)
-	if err != nil {
-		return Claim{
-			Kind:   ClaimUnknown,
-			Reason: "This account cannot list Argo CD Applications, so whether one claims this resource is unknown.",
-		}
+	// The search did not see the whole cluster. What it did see still counts
+	// for a positive — an Application that lists this name lists it — but an
+	// empty result from a partial search is not an absence, and reporting it
+	// as one is how a resource lands in a namespace a repository owns.
+	if claim.Kind.Managed() {
+		return claim
 	}
-	return resolveClaim(target, apps)
+	return Claim{
+		Kind:        ClaimUnknown,
+		Uncertainty: found.uncertainty,
+		Reason:      found.reason,
+		Probes:      found.probes,
+	}
 }
 
 // resolveClaim decides which Application speaks for a target.

@@ -45,6 +45,201 @@ func (c OwnershipConfidence) Managed() bool {
 	return c != "" && c != OwnershipUnmanaged
 }
 
+// OwnershipStatus is the answer a mutation entry point reads.
+//
+// It is a different value from OwnershipConfidence and the two must not be
+// collapsed. Confidence says how firmly an Application was tied to an object,
+// which is a statement about evidence that was found. Status says whether this
+// application is in a position to answer the question at all, which is a
+// statement about the search — and a search that could not run produces no
+// confidence and must not therefore read as "nothing claims this".
+//
+// Only one of these values opens a gate.
+type OwnershipStatus string
+
+// The four states, and only these four.
+const (
+	// OwnershipStatusLoading is the check not having finished.
+	//
+	// It is declared here rather than in the frontend so that the state which
+	// must disable a Create button is the same string on both sides of the
+	// binding. Nothing in Go ever returns it: a Go call either answers or
+	// fails, and the window in which nothing has answered yet belongs to the
+	// caller holding the promise.
+	OwnershipStatusLoading OwnershipStatus = "loading"
+
+	// OwnershipStatusManaged is an applicable Argo CD claim having been found.
+	// Persistent desired-state changes belong in the Application's source.
+	OwnershipStatusManaged OwnershipStatus = "managed"
+
+	// OwnershipStatusUnmanaged is a completed check that found no applicable
+	// claim. It is the only state in which a direct persistent write is
+	// offered, and it is reachable only when the search space was known to be
+	// whole.
+	OwnershipStatusUnmanaged OwnershipStatus = "unmanaged"
+
+	// OwnershipStatusUnknown is ownership not having been established:
+	// forbidden, timed out, truncated, or answered only ambiguously.
+	//
+	// It is deliberately not a kind of Unmanaged. Lack of visibility is not
+	// proof of lack of ownership, and the whole reason this value exists is
+	// that the two are indistinguishable from the outside right up until a
+	// reconcile deletes something.
+	OwnershipStatusUnknown OwnershipStatus = "unknown"
+)
+
+// OwnershipClaim is how strongly Argo CD speaks for one target.
+//
+// The distinction between the two positive values is the point of the type. An
+// object claim is evidence about this object; a namespace claim is evidence
+// about the destination it would land in, which is context rather than proof
+// that every name in that namespace is somebody's desired state.
+type OwnershipClaim string
+
+// The claims, weakest first.
+const (
+	// ClaimNone is a completed check that found nothing. It is not proof that
+	// nothing exists — it says only that Argo CD was asked and had no answer,
+	// and says nothing at all about controllers that are not Argo CD.
+	ClaimNone OwnershipClaim = "none"
+
+	// ClaimUnknown is Argo CD not having been consulted successfully. It is
+	// separated from ClaimNone because "we looked and found nothing" and "we
+	// could not look" lead to different sentences, and only one is an answer.
+	ClaimUnknown OwnershipClaim = "unknown"
+
+	// ClaimNamespace is an Application whose destination is this namespace.
+	// It is a warning about where the object would land rather than a claim
+	// on the object itself.
+	ClaimNamespace OwnershipClaim = "namespace"
+
+	// ClaimObject is an Application that lists this exact object among its
+	// resources, which it does even while the object is Missing. This is the
+	// strong claim and it outranks the namespace one.
+	ClaimObject OwnershipClaim = "object"
+)
+
+// Managed reports whether a claim should stop a direct persistent write.
+func (c OwnershipClaim) Managed() bool { return c == ClaimNamespace || c == ClaimObject }
+
+// OwnershipUncertainty says why ownership could not be established.
+//
+// It is a value rather than a sentence because the frontend has to decide
+// whether to offer permission details, and deciding that by reading an error
+// string is how a UI comes to depend on the wording of a Kubernetes message.
+type OwnershipUncertainty string
+
+// Why an ownership check did not settle.
+const (
+	// UncertaintyNone is a check that settled. It is the zero value.
+	UncertaintyNone OwnershipUncertainty = ""
+
+	// UncertaintyForbidden is RBAC refusing the Application listing.
+	UncertaintyForbidden OwnershipUncertainty = "forbidden"
+
+	// UncertaintyTimeout is the API server not answering in time. It is kept
+	// apart from a refusal because one is a permission to fix and the other
+	// is a cluster to wait for.
+	UncertaintyTimeout OwnershipUncertainty = "timeout"
+
+	// UncertaintyUnreachable is a request that failed for any other reason,
+	// including a cluster this application is not connected to.
+	UncertaintyUnreachable OwnershipUncertainty = "unreachable"
+
+	// UncertaintyIncomplete is a search that ran but could not enumerate its
+	// whole space: a listing cut short by the page budget, or one that had to
+	// fall back to a single namespace because the cluster-wide read was
+	// refused. Finding nothing in a part of the cluster is not finding
+	// nothing in the cluster.
+	UncertaintyIncomplete OwnershipUncertainty = "incomplete"
+
+	// UncertaintyAmbiguous is a completed search whose only evidence was weak:
+	// an app.kubernetes.io/instance label naming an Application that does not
+	// list the object. Helm writes that label on everything it installs, so it
+	// raises a question rather than answering one.
+	UncertaintyAmbiguous OwnershipUncertainty = "ambiguous"
+)
+
+// OwnershipProbeResult is what happened when one request was made.
+//
+// It is its own type rather than the connection diagnosis's ProbeResult: that
+// one answers "did this layer of the connection work", and a shared vocabulary
+// would eventually put "skipped" in front of somebody wondering why Create is
+// disabled.
+type OwnershipProbeResult string
+
+// Probe outcomes.
+const (
+	OwnershipProbeOK           OwnershipProbeResult = "ok"
+	OwnershipProbeForbidden    OwnershipProbeResult = "forbidden"
+	OwnershipProbeTimeout      OwnershipProbeResult = "timeout"
+	OwnershipProbeFailed       OwnershipProbeResult = "failed"
+	OwnershipProbeTruncated    OwnershipProbeResult = "truncated"
+	OwnershipProbeNotInstalled OwnershipProbeResult = "notInstalled"
+)
+
+// OwnershipProbe is one request the ownership check made, recorded so an
+// engineer can see which permission is missing rather than being told only
+// that something is.
+//
+// Detail is one scrubbed line from the API server. No credential, token or
+// authorization header ever reaches it: what a Kubernetes forbidden error
+// carries is the account name, the verb and the resource, and that is what is
+// worth reading.
+type OwnershipProbe struct {
+	// Resource is the thing that was asked for, spelled as RBAC spells it:
+	// "applications.argoproj.io".
+	Resource string `json:"resource"`
+	Verb     string `json:"verb"`
+
+	// Scope is "cluster" or "namespace", and Namespace names which one.
+	Scope     string `json:"scope"`
+	Namespace string `json:"namespace,omitempty"`
+
+	Result OwnershipProbeResult `json:"result"`
+	Detail string               `json:"detail,omitempty"`
+}
+
+// MutationGate is the ownership half of "may this be written directly?".
+//
+// One type for creating an object and for editing one, because the product
+// rule is the same in both places: a desired state that lives in a repository
+// is not edited through a cluster. The two differ in what evidence is
+// available, not in what the evidence means, and giving them separate types is
+// how Create came to be blocked while Edit stayed open.
+//
+// Allowed is computed here rather than in the frontend. A screen that decided
+// for itself would be a second copy of the rule, and the copy that eventually
+// disagrees is always the one in front of the user.
+type MutationGate struct {
+	Status OwnershipStatus `json:"status"`
+
+	// Allowed is true only for OwnershipStatusUnmanaged. There is deliberately
+	// no override: an unknown answer is not a slow answer, and a button that
+	// let somebody past it would make the whole check decorative.
+	Allowed bool `json:"allowed"`
+
+	// Managed repeats Status == managed as a boolean, so a screen explaining a
+	// refusal does not have to distinguish "in Git" from "cannot tell" by
+	// comparing strings.
+	Managed bool `json:"managed"`
+
+	Claim       OwnershipClaim       `json:"claim"`
+	Uncertainty OwnershipUncertainty `json:"uncertainty,omitempty"`
+
+	// Reason is the sentence the screen shows, written here so the wording for
+	// each state lives in one place rather than in a frontend switch.
+	Reason string `json:"reason"`
+
+	// App names the Application the target belongs to, when one was found.
+	App *ArgoApp `json:"app,omitempty"`
+
+	// Probes are what was asked and what came back, for the permission detail
+	// disclosure. They are present on a successful check too: an engineer
+	// arguing with an answer wants to see the question.
+	Probes []OwnershipProbe `json:"probes,omitempty"`
+}
+
 // ManifestCertainty says how precisely the desired state behind a live object
 // can be located in Git.
 //
@@ -141,6 +336,18 @@ type ResourceOwnership struct {
 	Installed bool `json:"installed"`
 
 	Confidence OwnershipConfidence `json:"confidence"`
+
+	// Status is the same answer in the terms a gate reads, and it is not
+	// derivable from Confidence alone: an object with no confidence may be
+	// genuinely unclaimed or may be one this account could not check, and only
+	// this field distinguishes them.
+	Status OwnershipStatus `json:"status"`
+
+	// Uncertainty says why Status is unknown, empty otherwise.
+	Uncertainty OwnershipUncertainty `json:"uncertainty,omitempty"`
+
+	// Probes are the requests the check made and how each answered.
+	Probes []OwnershipProbe `json:"probes,omitempty"`
 
 	// Reason says how the confidence was reached, in a sentence the UI shows.
 	// A guess that explains itself can be argued with; a guess that does not

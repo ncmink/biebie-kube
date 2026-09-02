@@ -44,15 +44,28 @@ const (
 // nothing to do with what is running, so every answer carries how it was
 // reached.
 func (s *Service) Ownership(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.ResourceOwnership, error) {
-	out := domain.ResourceOwnership{Ref: ref, Confidence: domain.OwnershipUnmanaged}
+	out := domain.ResourceOwnership{
+		Ref:        ref,
+		Confidence: domain.OwnershipUnmanaged,
+		Status:     domain.OwnershipStatusUnknown,
+	}
 
-	// The catalogue is read rather than the API, so a cluster without Argo CD
-	// costs this call nothing at all. That is what lets the drawer ask on
-	// every open instead of hiding the answer behind a button.
-	if !s.Installed(clusterID) {
-		out.Reason = "Argo CD is not installed in this cluster, so nothing here is managed from Git."
+	// The search runs first, and it costs a cluster without Argo CD nothing at
+	// all: the catalogue and discovery already know whether the resource is
+	// served. That is what lets the drawer ask on every open rather than
+	// hiding the answer behind a button.
+	//
+	// The object's namespace goes in as a fallback for a refused cluster-wide
+	// read, and nothing that the navigator is filtering by goes in at all.
+	found := s.discover(ctx, clusterID, ref.Namespace)
+
+	if found.installed == installNo {
+		out.Status = domain.OwnershipStatusUnmanaged
+		out.Reason = found.reason
+		out.Probes = found.probes
 		return out, nil
 	}
+	out.Installed = true
 
 	info, ok := s.clusters.LookupKind(clusterID, ref.Kind)
 	if !ok {
@@ -74,19 +87,51 @@ func (s *Service) Ownership(ctx context.Context, clusterID string, ref domain.Re
 		return out, fmt.Errorf("read %s: %w", ref.Name, err)
 	}
 
-	apps, err := listAll(ctx, client, applicationGVR)
-	if err != nil {
-		// An account that may read the object but not the Applications cannot
-		// be told anything about Git. Saying that is better than failing the
-		// drawer over a panel that is not the reason it was opened.
-		out.Installed = true
-		out.Reason = "This account cannot list Argo CD Applications, so Git ownership could not be checked."
-		return out, nil
+	resolved := resolveOwnership(ref, obj, found.apps)
+	resolved.Installed = true
+	resolved.Probes = found.probes
+	settle(&resolved, found)
+	return resolved, nil
+}
+
+// settle turns the evidence found on an object into the status a gate reads.
+//
+// The three branches are the whole safety argument of this package, so they
+// are written out rather than folded into a helper that returns a boolean.
+//
+// A positive claim survives an incomplete search. An Application that lists
+// this object lists it whatever else could not be read, so a tracking
+// annotation found through a single readable namespace is as good as one found
+// through the whole cluster. Absence does not survive: it is the only
+// conclusion that depends on having seen everything.
+func settle(out *domain.ResourceOwnership, found search) {
+	switch out.Confidence {
+	case domain.OwnershipTracked, domain.OwnershipConfirmed:
+		out.Status = domain.OwnershipStatusManaged
+		return
+
+	case domain.OwnershipCandidate:
+		// A label naming an Application that does not list the object. The
+		// search completed and the evidence is real, but Helm writes that
+		// label on everything it installs, so this settles nothing — and a
+		// question that cannot be answered is not an answer of "no".
+		out.Status = domain.OwnershipStatusUnknown
+		out.Uncertainty = domain.UncertaintyAmbiguous
+		out.Reason += " Biebie Kube cannot tell from that whether Argo CD manages this object, " +
+			"so persistent changes are not offered here."
+		return
 	}
 
-	resolved := resolveOwnership(ref, obj, apps)
-	resolved.Installed = true
-	return resolved, nil
+	if !found.complete {
+		out.Status = domain.OwnershipStatusUnknown
+		out.Uncertainty = found.uncertainty
+		if out.Uncertainty == domain.UncertaintyNone {
+			out.Uncertainty = domain.UncertaintyIncomplete
+		}
+		out.Reason = found.reason
+		return
+	}
+	out.Status = domain.OwnershipStatusUnmanaged
 }
 
 // How firmly an Application can be tied to an object, weakest first. These

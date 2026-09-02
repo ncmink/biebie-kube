@@ -32,6 +32,8 @@ import {
   GitRenderer,
   ManifestCertainty,
   OwnershipConfidence,
+  OwnershipStatus,
+  OwnershipUncertainty,
 } from '@/types'
 import type { GitAccess, SourceState, GitSource, ResourceOwnership, ResourceRef } from '@/types'
 
@@ -42,6 +44,11 @@ const ui = useUIStore()
 
 const ownership = ref<ResourceOwnership | null>(null)
 const error = ref('')
+const checking = ref(true)
+// The probes behind an unknown answer: which resource, which verb, what the
+// API server said. Closed by default, because the sentence above is enough for
+// most people and the list is for whoever has to go and fix the RBAC.
+const permissionsOpen = ref(false)
 
 const sourceState = ref<SourceState | null>(null)
 const searching = ref(false)
@@ -65,6 +72,8 @@ let token = 0
 async function load() {
   const mine = ++token
   error.value = ''
+  checking.value = true
+  permissionsOpen.value = false
   // A comparison belongs to the object it was run for. Carrying it to the next
   // row would name a file as somewhere else's source of truth.
   sourceState.value = null
@@ -81,6 +90,8 @@ async function load() {
     if (mine !== token) return
     error.value = message(err)
     ownership.value = null
+  } finally {
+    if (mine === token) checking.value = false
   }
 }
 
@@ -90,37 +101,84 @@ watch(
   { immediate: true },
 )
 
-// A cluster that does not run Argo CD has no GitOps story, and a row saying so
-// on every drawer would be noise rather than news.
-const shown = computed(() => ownership.value?.installed === true)
+/**
+ * When the panel appears at all.
+ *
+ * A cluster that does not run Argo CD has no GitOps story, and a row saying so
+ * on every drawer would be noise rather than news. An unknown answer is a
+ * different matter: it is the reason a write is unavailable, so it is shown
+ * even though nothing was found — including when whether Argo CD is installed
+ * is itself part of what could not be established.
+ */
+const shown = computed(
+  () => checking.value || ownership.value?.installed === true || status.value === OwnershipStatus.OwnershipStatusUnknown,
+)
 
 const app = computed(() => ownership.value?.app ?? null)
 const sources = computed(() => ownership.value?.sources ?? [])
 
-const managed = computed(() => {
-  const confidence = ownership.value?.confidence
-  return (
-    confidence === OwnershipConfidence.OwnershipTracked ||
-    confidence === OwnershipConfidence.OwnershipConfirmed
-  )
+/**
+ * status is the state everything else reads, and it comes from Go.
+ *
+ * Loading is held here rather than sent, because a Go call either answers or
+ * fails: the window in which nothing has answered yet belongs to whoever is
+ * holding the promise. What matters is that this window reads as "checking"
+ * and never as "unmanaged" — somebody could press Create during that second.
+ */
+const status = computed(() => {
+  if (checking.value) return OwnershipStatus.OwnershipStatusLoading
+  return ownership.value?.status ?? OwnershipStatus.OwnershipStatusUnknown
 })
+
+const managed = computed(() => status.value === OwnershipStatus.OwnershipStatusManaged)
+const unknown = computed(() => status.value === OwnershipStatus.OwnershipStatusUnknown)
+
+// The probes are the difference between "something went wrong" and a sentence
+// somebody can act on: a resource, a verb, a scope and what came back.
+const probes = computed(() => ownership.value?.probes ?? [])
 
 /**
  * headline is the one sentence the panel leads with.
  *
- * A candidate gets its own wording rather than a quieter colour, because an
- * engineer who reads "Managed by Argo CD" will go and edit a repository, and
- * the label is the only thing standing between a guess and that edit.
+ * Three states, three wordings, and no state borrowing another's. An engineer
+ * who reads "Managed by Argo CD" will go and edit a repository; one who reads
+ * "Unmanaged" will edit the cluster. Neither is a safe thing to say when the
+ * check did not finish, so the unfinished case says so in its own words.
+ *
+ * A candidate keeps its "possibly" rather than being folded into the generic
+ * unknown line. Both close the gate identically; this one can name the
+ * Application it is unsure about, which is more use than a shrug.
  */
 const headline = computed(() => {
-  switch (ownership.value?.confidence) {
-    case OwnershipConfidence.OwnershipTracked:
-    case OwnershipConfidence.OwnershipConfirmed:
-      return { label: 'Managed by Argo CD', tone: 'text-ok' }
-    case OwnershipConfidence.OwnershipCandidate:
-      return { label: 'Possibly managed by Argo CD', tone: 'text-warn' }
+  if (status.value === OwnershipStatus.OwnershipStatusLoading) {
+    return { label: 'Checking GitOps ownership…', tone: 'text-ink-muted' }
+  }
+  if (status.value === OwnershipStatus.OwnershipStatusManaged) {
+    return { label: 'Managed by Argo CD', tone: 'text-ok' }
+  }
+  if (unknown.value) {
+    return ownership.value?.confidence === OwnershipConfidence.OwnershipCandidate
+      ? { label: 'Possibly managed by Argo CD', tone: 'text-warn' }
+      : { label: 'Ownership unknown', tone: 'text-warn' }
+  }
+  return { label: 'Unmanaged', tone: 'text-ink-muted' }
+})
+
+/** why turns the structured reason for an unknown answer into a sentence. */
+const why = computed(() => {
+  switch (ownership.value?.uncertainty) {
+    case OwnershipUncertainty.UncertaintyForbidden:
+      return 'Permission denied while listing Argo CD Applications.'
+    case OwnershipUncertainty.UncertaintyTimeout:
+      return 'The Argo CD Application listing did not answer in time.'
+    case OwnershipUncertainty.UncertaintyUnreachable:
+      return 'The Argo CD Applications could not be read from this cluster.'
+    case OwnershipUncertainty.UncertaintyIncomplete:
+      return 'Only part of the cluster could be searched, so an absent claim proves nothing.'
+    case OwnershipUncertainty.UncertaintyAmbiguous:
+      return 'The evidence found points at an Application without confirming it.'
     default:
-      return { label: 'Unmanaged', tone: 'text-ink-muted' }
+      return ''
   }
 })
 
@@ -401,8 +459,65 @@ function openApplication() {
 
     <p v-if="error" class="mt-2 text-xs text-bad">{{ error }}</p>
 
-    <template v-else-if="ownership">
+    <p
+      v-else-if="!ownership"
+      class="mt-2 text-xs font-medium"
+      :class="headline.tone"
+    >
+      {{ headline.label }}
+    </p>
+
+    <template v-else>
       <p class="mt-2 text-xs font-medium" :class="headline.tone">{{ headline.label }}</p>
+
+      <!--
+        Why a write is unavailable, in the panel that took it away. The reason
+        is structured all the way from Go: nothing here reads an error string
+        to work out what happened.
+      -->
+      <template v-if="unknown">
+        <p class="mt-2 text-[11px] leading-relaxed text-ink-muted">
+          Biebie Kube could not determine whether Argo CD manages this object.
+        </p>
+
+        <dl v-if="why" class="mt-2.5 grid grid-cols-[8.5rem_1fr] gap-2 text-xs">
+          <dt class="text-ink-faint">Reason</dt>
+          <dd class="text-ink">{{ why }}</dd>
+        </dl>
+
+        <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
+          Direct creation and live editing are unavailable until ownership can be verified. Viewing
+          this object, its logs and its YAML is unaffected.
+        </p>
+
+        <template v-if="probes.length">
+          <button
+            class="mt-2 block text-[11px] text-brand hover:underline"
+            @click="permissionsOpen = !permissionsOpen"
+          >
+            {{ permissionsOpen ? 'Hide permission details' : 'View permission details' }}
+          </button>
+
+          <ul v-if="permissionsOpen" class="mt-2 space-y-1.5">
+            <li
+              v-for="(probe, index) in probes"
+              :key="index"
+              class="rounded-md bg-surface-2 px-2.5 py-1.5"
+            >
+              <p class="break-all font-mono text-[11px] text-ink">
+                {{ probe.verb }} {{ probe.resource }}
+              </p>
+              <p class="mt-0.5 text-[10px] text-ink-faint">
+                {{ probe.scope === 'cluster' ? 'cluster-wide' : `namespace ${probe.namespace}` }} ·
+                {{ probe.result }}
+              </p>
+              <p v-if="probe.detail" class="mt-0.5 break-all text-[10px] text-ink-muted">
+                {{ probe.detail }}
+              </p>
+            </li>
+          </ul>
+        </template>
+      </template>
 
       <dl v-if="app" class="mt-3 space-y-2.5 text-xs">
         <div class="grid grid-cols-[8.5rem_1fr] gap-2">
@@ -703,8 +818,17 @@ function openApplication() {
         </template>
       </template>
 
-      <p v-if="!managed" class="mt-2 text-[11px] leading-relaxed text-ink-faint">
+      <!--
+        The evidence sentence, for the two states that have one to give. Under
+        an unknown answer the block above has already said what happened, and
+        repeating the evidence line under it would read as a second, quieter
+        conclusion.
+      -->
+      <p v-if="!managed && !unknown" class="mt-2 text-[11px] leading-relaxed text-ink-faint">
         {{ ownership.reason }}
+      </p>
+      <p v-if="!managed && !unknown" class="mt-1 text-[11px] leading-relaxed text-ink-faint">
+        Direct cluster changes are available. Biebie Kube will not record them in Git.
       </p>
     </template>
   </section>

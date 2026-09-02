@@ -2,8 +2,9 @@
 /**
  * A Monaco editor for one document, in one of two languages.
  *
- * Separate from YamlEditor.vue, which owns a live resource's read/diff/apply
- * cycle. This one owns nothing: it renders text and reports edits, so both the
+ * Separate from YamlEditor.vue, which owns a live resource's snapshot, its
+ * comparison against what has been typed, and the guarded write back. This one
+ * owns nothing: it renders text and reports edits, so both the
  * authoring surfaces and the read-only preview of what cdk8s generated can use
  * the same component without inheriting a resource lifecycle none of them has.
  *

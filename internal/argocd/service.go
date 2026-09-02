@@ -57,6 +57,10 @@ const activityLimit = 100
 type Service struct {
 	clusters *cluster.Manager
 	forwards *portforward.Service
+
+	// cache holds recent Application searches, so clicking down a list of
+	// resources does not list every Application in the cluster per row.
+	cache cache
 }
 
 // NewService wires the service to live cluster sessions.
@@ -66,13 +70,18 @@ func NewService(clusters *cluster.Manager, forwards *portforward.Service) *Servi
 
 // Installed reports whether this cluster serves the Application definition.
 //
-// The catalogue is read rather than the API, because the catalogue is what the
-// connection already discovered and it is the same list the sidebar builds
-// from — the dashboard and the navigation cannot disagree about whether Argo
-// CD is here.
+// Two sources are consulted rather than one. The session catalogue is what the
+// sidebar builds from, so the dashboard and the navigation cannot disagree; API
+// discovery is the fallback, because the catalogue's custom entries come from
+// listing CustomResourceDefinitions and a namespace-scoped account may not do
+// that. An account that cannot read definitions was previously indistinguishable
+// from a cluster with no Argo CD at all.
+//
+// The answer is a boolean here because the sidebar only needs to know whether
+// to draw an entry. Everything that gates a write goes through the three-state
+// installation check instead, which keeps "not served" apart from "not read".
 func (s *Service) Installed(clusterID string) bool {
-	_, ok := s.clusters.LookupKind(clusterID, domain.KindArgoApplication)
-	return ok
+	return s.installation(clusterID) == installYes
 }
 
 // Dashboard builds the Argo CD dashboard.
@@ -284,16 +293,14 @@ func serverService(ctx context.Context, client *kube.ClusterClient) (corev1.Serv
 }
 
 // listAll reads one Argo CD resource type across every namespace.
+//
+// The dashboard's reads come through here and are allowed to be a prefix of a
+// very large cluster: a summary that is slightly low is a summary. Ownership
+// does not use it, because there the difference between "none" and "none in
+// the first page" is the difference between offering a write and refusing one.
 func listAll(ctx context.Context, client *kube.ClusterClient, gvr schema.GroupVersionResource) ([]*unstructured.Unstructured, error) {
-	list, err := client.Dynamic.Resource(gvr).List(ctx, metav1.ListOptions{Limit: listBudget})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*unstructured.Unstructured, 0, len(list.Items))
-	for i := range list.Items {
-		out = append(out, &list.Items[i])
-	}
-	return out, nil
+	out, _, err := listPaged(ctx, client, gvr, "")
+	return out, err
 }
 
 func outOfSync(app domain.ArgoApp) bool { return normalise(app.Sync) == "outofsync" }

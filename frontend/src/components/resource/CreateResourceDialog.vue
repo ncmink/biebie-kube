@@ -20,7 +20,7 @@ import ContextTrail from '@/components/common/ContextTrail.vue'
 import { api, message } from '@/api'
 import { useUIStore } from '@/stores/ui'
 import { singularTitle } from '@/composables/kind'
-import { AuthoringMode, EnvironmentKind } from '@/types'
+import { AuthoringMode, EnvironmentKind, OwnershipStatus } from '@/types'
 import type { Cluster, CreateAvailability, ManifestPreview } from '@/types'
 
 const props = defineProps<{
@@ -50,6 +50,26 @@ const typescriptReady = computed(
 )
 
 const namespaced = computed(() => !!availability.value?.namespaced)
+
+/**
+ * The GitOps half of the answer, decided in Go.
+ *
+ * Three refusals reach this screen and they lead to three different places: a
+ * managed target sends somebody to a repository, an unverifiable one sends
+ * them to whoever grants RBAC, and a missing namespace is fixed without
+ * leaving the list. Collapsing them into "not allowed" would send everyone to
+ * the same wrong place.
+ */
+const gate = computed(() => availability.value?.ownership)
+const ownershipUnknown = computed(() => gate.value?.status === OwnershipStatus.OwnershipStatusUnknown)
+const probes = computed(() => gate.value?.probes ?? [])
+const showPermissions = ref(false)
+
+const refusal = computed(() => {
+  if (availability.value?.needsNamespace) return { heading: 'Namespace', state: 'Not chosen' }
+  if (gate.value?.managed) return { heading: 'GitOps', state: 'Managed by Argo CD' }
+  return { heading: 'GitOps', state: 'Ownership unknown' }
+})
 
 /**
  * The manifest shown in the preview pane is the manifest that will be sent.
@@ -203,26 +223,58 @@ watch(() => [props.clusterId, props.namespace, props.kind], load, { immediate: t
         class="min-h-0 flex-1 overflow-y-auto px-5 py-6"
       >
         <p class="text-xs font-semibold uppercase tracking-widest text-ink-faint">
-          {{ availability.needsNamespace ? 'Namespace' : 'GitOps' }}
+          {{ refusal.heading }}
         </p>
-        <p class="mt-1 text-sm text-ink">
-          {{
-            availability.needsNamespace
-              ? 'Not chosen'
-              : availability.managed
-                ? 'Managed'
-                : 'Ownership unknown'
-          }}
-        </p>
+        <p class="mt-1 text-sm text-ink">{{ refusal.state }}</p>
+
         <p class="mt-2 max-w-xl text-sm leading-relaxed text-ink-muted">{{ availability.reason }}</p>
-        <p v-if="availability.managed" class="mt-3 max-w-xl text-sm leading-relaxed text-ink-muted">
+
+        <p v-if="gate?.managed" class="mt-3 max-w-xl text-sm leading-relaxed text-ink-muted">
           Direct creation is not offered here. A resource this Application would not know about is
           one the next reconcile may delete, and the change would be recorded nowhere.
         </p>
-        <div v-if="availability.app" class="mt-4 inline-block rounded-xl border border-line bg-surface-3 px-3 py-2">
+
+        <!--
+          An unverifiable target is refused for a reason somebody can go and
+          fix, so the probes that failed are named. Not finding a claim is not
+          proof there is none, which is the whole reason this branch exists.
+        -->
+        <template v-else-if="ownershipUnknown">
+          <p class="mt-3 max-w-xl text-sm leading-relaxed text-ink-muted">
+            Creation stays unavailable until ownership can be verified. Creating into a namespace an
+            Application may own is how an object appears that the next reconcile deletes.
+          </p>
+
+          <template v-if="probes.length">
+            <button
+              class="mt-3 block text-xs text-brand hover:underline"
+              @click="showPermissions = !showPermissions"
+            >
+              {{ showPermissions ? 'Hide permission details' : 'View permission details' }}
+            </button>
+
+            <ul v-if="showPermissions" class="mt-2 max-w-xl space-y-1.5">
+              <li
+                v-for="(probe, index) in probes"
+                :key="index"
+                class="rounded-lg border border-line bg-surface-3 px-2.5 py-1.5"
+              >
+                <p class="break-all font-mono text-[11px] text-ink">
+                  {{ probe.verb }} {{ probe.resource }}
+                </p>
+                <p class="mt-0.5 text-[10px] text-ink-faint">
+                  {{ probe.scope === 'cluster' ? 'cluster-wide' : `namespace ${probe.namespace}` }} ·
+                  {{ probe.result }}
+                </p>
+              </li>
+            </ul>
+          </template>
+        </template>
+
+        <div v-if="gate?.app" class="mt-4 inline-block rounded-xl border border-line bg-surface-3 px-3 py-2">
           <p class="text-[10px] uppercase tracking-widest text-ink-faint">Application</p>
           <p class="mt-0.5 font-mono text-xs text-ink">
-            {{ availability.app.namespace }}/{{ availability.app.name }}
+            {{ gate.app.namespace }}/{{ gate.app.name }}
           </p>
         </div>
       </div>

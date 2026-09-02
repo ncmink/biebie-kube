@@ -190,7 +190,8 @@ unpublished release is invisible to the updater no matter how complete it is.
 ## 7. Confirm the update path
 
 From an installed copy of the previous version, Settings → check for updates
-should offer the new one, verify it and swap it in.
+should offer the new one, verify it, swap it in and restart on its own. The
+window's Restart & Apply button stays as a fallback if the spawn fails.
 
 The download has no whole-exchange timeout (see `internal/update/client.go`), so
 a large asset on a slow link keeps going instead of failing at thirty seconds.

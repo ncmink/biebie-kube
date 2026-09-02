@@ -25,8 +25,10 @@ func (s *AppService) Version() string { return appVersion }
 func (s *AppService) StatePath() string { return s.core.store.Path() }
 
 // CheckForUpdate opens the Wails update window and, if a newer GitHub
-// Release exists, downloads and stages it. The call returns as soon as the
-// check has started so the Settings button does not wait on the download.
+// Release exists, downloads and stages it. Once the update is ready the
+// application restarts itself into the new version; the call returns as
+// soon as the check has started so the Settings button does not wait on
+// the download.
 func (s *AppService) CheckForUpdate() error {
 	if s.updater == nil || s.updater.State() == updater.StateUnconfigured {
 		return errors.New("checking for updates is not available in this build")

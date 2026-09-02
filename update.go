@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"log"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
@@ -79,5 +81,20 @@ func configureUpdater(app *application.App) {
 		},
 	}); err != nil {
 		log.Printf("updater could not start: %v", err)
+		return
 	}
+
+	// The window's last step is a button because Wails will not quit an
+	// application that still has work in it. Biebie Kube has already shown
+	// the download, verified the signature, and staged the swap: asking
+	// again is a click that does not add a decision. Restart here, and leave
+	// the button in place so a failed spawn is still recoverable.
+	var once sync.Once
+	app.Event.On(updater.EventUpdateReady, func(*application.CustomEvent) {
+		go once.Do(func() {
+			if err := app.Updater.Restart(context.Background()); err != nil {
+				log.Printf("update could not restart: %v", err)
+			}
+		})
+	})
 }

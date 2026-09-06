@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	bctx "github.com/ncmink/biebie-protocol/context"
+)
 
 // ClusterState is where a cluster session is in its lifecycle.
 //
@@ -113,6 +117,21 @@ type Session struct {
 	ConnectedAt *time.Time `json:"connectedAt,omitempty"`
 
 	Diagnosis *Diagnosis `json:"diagnosis,omitempty"`
+
+	// APIForward is set when this session reaches the API server through a
+	// local port Biebie Access is lending rather than at the cluster's own
+	// address. It is shown so a loopback endpoint never looks like a mistake.
+	APIForward *bctx.Forward `json:"apiForward,omitempty"`
+
+	// Forwards are the other local ports the same connection lends. They are
+	// not Kubernetes — they are whatever else in the customer network the
+	// engineer asked for — and the cluster page offers them as links.
+	Forwards []bctx.Forward `json:"forwards,omitempty"`
+
+	// Gateway is the machine those forwards terminate on. A forward's two ends
+	// are both usually written as loopback, so this is what lets the page say
+	// which address is on this machine and which is over there.
+	Gateway string `json:"gateway,omitempty"`
 
 	// Error is a short message for the header. Diagnosis carries the detail.
 	Error string `json:"error,omitempty"`

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"biebie-kube/internal/access"
@@ -17,7 +18,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: access-smoke <connection id or name>")
+		log.Fatal("usage: access-smoke <connection id or name> [cluster host] [cluster port]")
 	}
 	profileID := os.Args[1]
 
@@ -44,8 +45,29 @@ func main() {
 	if err != nil {
 		log.Fatalf("status: %v", err)
 	}
-	fmt.Printf("status: state=%s connected=%v ip=%s detail=%q\n",
-		status.State, status.Connected, status.AssignedIP, status.Detail)
+	fmt.Printf("status: state=%s connected=%v ip=%s gateway=%s detail=%q\n",
+		status.State, status.Connected, status.AssignedIP, status.Gateway, status.Detail)
+	for _, f := range status.Forwards {
+		fmt.Printf("  forward %s -> %s %s\n", f.Local(), f.Remote(), f.Name)
+	}
+
+	// The substitution Biebie Kube would make for a cluster on this connection.
+	// Printing it here is the whole reason the field exists: it is what stands
+	// between a kubeconfig naming an unreachable address and a working session.
+	if len(os.Args) > 2 {
+		host, port := os.Args[2], 6443
+		if len(os.Args) > 3 {
+			if parsed, err := strconv.Atoi(os.Args[3]); err == nil {
+				port = parsed
+			}
+		}
+		if forward, ok := status.LocalFor(host, port); ok {
+			fmt.Printf("cluster %s:%d is reached at %s, verified as %s\n",
+				host, port, forward.Local(), host)
+		} else {
+			fmt.Printf("cluster %s:%d is reached directly; no forward stands in for it\n", host, port)
+		}
+	}
 
 	unknown, err := client.Status(ctx, "no-such-profile")
 	if err != nil {

@@ -87,6 +87,17 @@ type session struct {
 	catalogue []domain.KindInfo
 	kinds     map[domain.Kind]domain.KindInfo
 
+	// apiForward and forwards are what Biebie Access was lending when this
+	// session was established: the local port standing in for the API server,
+	// if any, and everything else the same connection opened.
+	apiForward *bctx.Forward
+	forwards   []bctx.Forward
+
+	// gateway is the machine those forwards terminate on. Both ends of a
+	// forward are usually written as loopback, so without a name for the far
+	// side the page cannot say which address belongs to which machine.
+	gateway string
+
 	diagnosis *domain.Diagnosis
 	lastError string
 }
@@ -180,6 +191,9 @@ func (m *Manager) sessionView(clusterID string) domain.Session {
 		ServerVersion: s.serverVersion,
 		ConnectedAt:   s.connectedAt,
 		Diagnosis:     s.diagnosis,
+		APIForward:    s.apiForward,
+		Forwards:      s.forwards,
+		Gateway:       s.gateway,
 		Error:         s.lastError,
 	}
 }
@@ -300,14 +314,22 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 		return m.Session(clusterID), nil
 	}
 
-	if elapsed, err := probeTCP(ctx, cluster.HostPort()); err != nil {
+	// Where the API server actually answers. It is the cluster's own address
+	// unless Biebie Access is standing a local port in for it.
+	endpoint, via := network.endpointFor(cluster)
+
+	if elapsed, err := probeTCP(ctx, endpoint); err != nil {
 		kind, summary := classify(err)
-		probes.fail(domain.LayerTCP, fmt.Sprintf("%s did not accept a connection", cluster.HostPort()), elapsed)
+		probes.fail(domain.LayerTCP, fmt.Sprintf("%s did not accept a connection", network.describe(cluster)), elapsed)
 		probes.skipRest(domain.LayerTLS, domain.LayerKubernetes)
 
 		detail := err.Error()
 		profileID := ""
 		switch {
+		case network.viaTunnel:
+			profileID = cluster.Access.ProfileID
+			detail = "Biebie Access is forwarding " + endpoint + " to " + cluster.HostPort() +
+				", but nothing answered there. " + detail
 		case network.confirmed:
 			profileID = cluster.Access.ProfileID
 			detail = "Customer network access is connected, but the API server port did not answer. " + detail
@@ -323,10 +345,10 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 		m.transition(cluster, stateFor(kind), diag, summary)
 		return m.Session(clusterID), nil
 	} else {
-		probes.pass(domain.LayerTCP, cluster.HostPort()+" accepted a connection", elapsed)
+		probes.pass(domain.LayerTCP, network.describe(cluster)+" accepted a connection", elapsed)
 	}
 
-	client, err := m.factory.Build(path, cluster.ContextName)
+	client, err := m.factory.BuildVia(path, cluster.ContextName, via)
 	if err != nil {
 		probes.fail(domain.LayerKubernetes, "the kubeconfig context could not be loaded", 0)
 		diag := probes.diagnosis(domain.FailureConfig, "This kubeconfig context could not be loaded.", err.Error(), "")
@@ -401,7 +423,7 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 	if previous, ok := m.sessions[clusterID]; ok && previous.hub != nil {
 		previous.hub.Close()
 	}
-	m.sessions[clusterID] = &session{
+	live := &session{
 		cluster:       cluster,
 		state:         domain.ClusterConnected,
 		namespace:     namespace,
@@ -413,7 +435,14 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 		resources:     resources,
 		catalogue:     catalogue,
 		kinds:         kinds,
+		forwards:      network.extras,
+		gateway:       network.gateway,
 	}
+	if network.viaTunnel {
+		forward := network.forward
+		live.apiForward = &forward
+	}
+	m.sessions[clusterID] = live
 	view := m.sessionView(clusterID)
 	m.mu.Unlock()
 
@@ -430,6 +459,42 @@ type accessCheck struct {
 	confirmed bool
 	// reason explains, in the engineer's terms, why it was not confirmed.
 	reason string
+
+	// viaTunnel reports that the API server is not reachable at its own
+	// address and forward is the local port standing in for it.
+	viaTunnel bool
+	forward   bctx.Forward
+
+	// extras are the forwards this connection lends that are not the API
+	// server — a NodePort service, a database — which the cluster page offers
+	// as links.
+	extras []bctx.Forward
+
+	// gateway is the machine the forwards terminate on, named so the page can
+	// tell the two loopback addresses in a forward apart.
+	gateway string
+}
+
+// endpointFor resolves where to dial and, when that is not the cluster's own
+// address, how the client should verify what answers there.
+func (a accessCheck) endpointFor(cluster domain.Cluster) (string, *kube.Endpoint) {
+	if !a.viaTunnel {
+		return cluster.HostPort(), nil
+	}
+	local := a.forward.Local()
+	return local, &kube.Endpoint{Address: local, ServerName: cluster.Host()}
+}
+
+// describe names the endpoint for the diagnosis panel.
+//
+// A bare loopback address in a cluster's probe list reads as a bug — the
+// engineer knows perfectly well their cluster is not on this machine — so the
+// tunnel is spelled out wherever the substituted address appears.
+func (a accessCheck) describe(cluster domain.Cluster) string {
+	if !a.viaTunnel {
+		return cluster.HostPort()
+	}
+	return a.forward.Local() + ", forwarded by Biebie Access to " + cluster.HostPort()
 }
 
 // checkAccess asks Biebie Access about the customer network this cluster sits
@@ -471,12 +536,42 @@ func (m *Manager) checkAccess(ctx context.Context, cluster domain.Cluster, probe
 		)
 	}
 
+	check := accessCheck{required: true, confirmed: true}
+
 	detail := "connected"
 	if status.AssignedIP != "" {
 		detail = "connected as " + status.AssignedIP
 	}
+
+	// A connection that lends local ports has told us which addresses inside
+	// the customer network they stand for. If one of them is this cluster's API
+	// server, that local port is the only way to reach it — the cluster's own
+	// address is behind the firewall the tunnel exists to get around.
+	if forward, ok := status.LocalFor(cluster.Host(), cluster.Port()); ok {
+		check.viaTunnel = true
+		check.forward = forward
+		detail = "connected, forwarding " + forward.Local() + " to " + cluster.HostPort()
+	}
+	check.extras = otherForwards(status.Forwards, check.forward, check.viaTunnel)
+	check.gateway = status.Gateway
+
 	probes.pass(domain.LayerAccess, detail, 0)
-	return accessCheck{required: true, confirmed: true}
+	return check
+}
+
+// otherForwards is everything the connection lends that is not this cluster's
+// API server. They belong to the customer network rather than to Kubernetes —
+// a NodePort service, an admin console — and the cluster page is simply the
+// place the engineer is already looking when they need one.
+func otherForwards(all []bctx.Forward, api bctx.Forward, hasAPI bool) []bctx.Forward {
+	var out []bctx.Forward
+	for _, f := range all {
+		if hasAPI && f.LocalPort == api.LocalPort {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // Disconnect closes a session and everything hanging off it.

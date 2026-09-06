@@ -9,7 +9,9 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -159,6 +161,24 @@ func (c Cluster) HostPort() string {
 		port = "443"
 	}
 	return u.Hostname() + ":" + port
+}
+
+// Port returns the API server port, defaulting the same way HostPort does.
+// Zero means the cluster records no endpoint at all.
+func (c Cluster) Port() int {
+	hostPort := c.HostPort()
+	if hostPort == "" {
+		return 0
+	}
+	_, port, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return 0
+	}
+	value, err := strconv.Atoi(port)
+	if err != nil {
+		return 0
+	}
+	return value
 }
 
 // ClusterInput is what the UI submits when adding or editing a cluster.

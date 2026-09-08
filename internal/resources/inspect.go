@@ -16,7 +16,8 @@ import (
 // Inspect builds the right-hand inspector for one object.
 //
 // ConfigMap and Secret `data` values are copied as stored. Secret data is
-// base64 in the API JSON; this function never decodes it.
+// base64 in the API JSON; decoding is the inspector's eye click, not this
+// payload, so a Refresh can replace the stored bytes.
 func Inspect(kind domain.Kind, obj *unstructured.Unstructured) domain.ResourceInspect {
 	out := domain.ResourceInspect{
 		Ref: domain.ResourceRef{
@@ -398,7 +399,7 @@ func dataEntries(obj *unstructured.Unstructured, field string, binary bool) []do
 //
 // A string is already what the API JSON carries (base64 for Secret data).
 // []byte would be the decoded secret from a typed object — re-encode it so
-// the UI never receives plaintext by accident.
+// plaintext does not cross the binding until the UI asks to reveal it.
 func storedString(value any) string {
 	switch v := value.(type) {
 	case string:

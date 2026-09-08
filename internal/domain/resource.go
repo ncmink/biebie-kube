@@ -396,8 +396,8 @@ type KindPresence struct {
 //
 // Value is exactly what Kubernetes stores on the object: plaintext for
 // ConfigMap `data`, and base64 for Secret `data` and ConfigMap `binaryData`.
-// It is never decoded — revealing a secret in the UI must show the stored
-// encoding, not the plaintext behind it.
+// Inspect never decodes it. Revealing a secret in the UI decodes that stored
+// encoding; until then the drawer shows base64.
 type DataEntry struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`

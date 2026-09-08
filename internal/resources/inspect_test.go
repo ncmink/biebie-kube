@@ -68,6 +68,35 @@ func TestSchedulingRulesAreCountedAndEmptyOnesLeftOut(t *testing.T) {
 	}
 }
 
+func TestSecretDataStaysBase64OnTheInspectPayload(t *testing.T) {
+	// Inspect copies the stored encoding. Decoding in Go would mean every
+	// refresh already carried plaintext, and the UI could not tell stored
+	// bytes from a value it had already decoded.
+	inspect := Inspect(domain.KindSecret, &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "api-credentials"},
+		"type":     "Opaque",
+		"data":     map[string]any{"TOKEN": "c2VjcmV0"},
+	}})
+
+	if inspect.Type != "Opaque" {
+		t.Fatalf("type = %q", inspect.Type)
+	}
+	if len(inspect.Data) != 1 || inspect.Data[0].Key != "TOKEN" || inspect.Data[0].Value != "c2VjcmV0" {
+		t.Fatalf("secret data = %+v", inspect.Data)
+	}
+}
+
+func TestConfigMapDataStaysPlaintext(t *testing.T) {
+	inspect := Inspect(domain.KindConfigMap, &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "app"},
+		"data":     map[string]any{"HOST": "example.com"},
+	}})
+
+	if len(inspect.Data) != 1 || inspect.Data[0].Value != "example.com" {
+		t.Fatalf("configmap data = %+v", inspect.Data)
+	}
+}
+
 func TestAKindWithNoInspectorOfItsOwnKeepsItsMetadata(t *testing.T) {
 	// Inspect must still answer for a kind it has no properties for, or the
 	// drawer loses labels and annotations along with the rows it never had.

@@ -32,6 +32,7 @@ const cluster = computed(() => clusters.clusters.find((entry) => entry.id === pr
 const resourceKind = computed(() => asKind(props.kind, clusters.catalogues[props.clusterId]))
 const heading = computed(() => singularTitle(kindInfo.value?.title ?? props.kind))
 const selected = ref<ResourceRow | null>(null)
+const inspectRevision = ref(0)
 
 const identity = computed(() => `${props.clusterId}/${props.kind}/${namespace.value}`)
 
@@ -72,16 +73,27 @@ const deleting = ref<ResourceRow | null>(null)
  */
 const creating = ref(false)
 
-function reload() {
-  void resources.load(props.clusterId, props.kind, namespace.value)
+async function reload() {
+  await resources.load(props.clusterId, props.kind, namespace.value)
+  const current = selected.value
+  if (!current) return
+  const next = resources.rows.find((row) => row.key === current.key)
+  if (next) selected.value = next
 }
 
-onMounted(reload)
+function refresh() {
+  inspectRevision.value++
+  void reload()
+}
+
+onMounted(() => {
+  void reload()
+})
 watch(identity, () => {
   selected.value = null
   menu.value = null
   resources.reset()
-  reload()
+  void reload()
 })
 
 function open(row: ResourceRow) {
@@ -150,7 +162,7 @@ async function remove() {
       />
       <button
         class="rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
-        @click="reload"
+        @click="refresh"
       >
         Refresh
       </button>
@@ -166,8 +178,7 @@ async function remove() {
       v-if="kindInfo?.sensitive"
       class="shrink-0 border-b border-line bg-warn/10 px-6 py-2 text-xs text-warn"
     >
-      Secret values stay hidden. Opening a secret shows its keys; the eye
-      reveals the stored base64 and does not decode it.
+      Secret values are shown as stored base64. The eye decodes and shows plain text.
     </p>
 
     <div class="flex min-h-0 flex-1">
@@ -197,6 +208,7 @@ async function remove() {
         :kind="kind"
         :row="selected"
         :kind-title="kindInfo?.title ?? kind"
+        :revision="inspectRevision"
         @menu="openMenu(selected, $event)"
         @delete="deleting = selected"
         @close="selected = null"
@@ -230,7 +242,7 @@ async function remove() {
       :kind-title="kindInfo?.title ?? kind"
       :namespace="namespace"
       :cluster="cluster"
-      @created="reload"
+      @created="refresh"
       @close="creating = false"
     />
 

@@ -35,7 +35,7 @@ func (s *ResourceService) CountResources(ctx context.Context, clusterID, namespa
 // InspectResource returns the right-hand inspector payload for one object.
 //
 // ConfigMap and Secret data values are the stored encoding. Secret `data` is
-// base64 and is never decoded here.
+// base64; the UI decodes it only when the eye is opened.
 func (s *ResourceService) InspectResource(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.ResourceInspect, error) {
 	inspect, err := s.core.resources.InspectResource(ctx, clusterID, ref)
 	return inspect, describe(err)

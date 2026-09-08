@@ -21,6 +21,8 @@ const props = defineProps<{
   kind: string
   row: ResourceRow
   kindTitle: string
+  /** Bumped by the list Refresh so this inspector re-reads the live object. */
+  revision?: number
 }>()
 
 // Deleting and the action menu are both raised rather than handled, so the one
@@ -118,18 +120,16 @@ function startResize(event: PointerEvent) {
   handle.addEventListener('pointercancel', stop)
 }
 
-async function load() {
+async function load(opts?: { quiet?: boolean }) {
   if (!ref_.value) return
-  loading.value = true
+  const quiet = opts?.quiet && inspect.value != null
+  if (!quiet) loading.value = true
   error.value = ''
-  yamlOpen.value = false
-  labelsOpen.value = false
-  annotationsOpen.value = false
   try {
     inspect.value = await api.inspectResource(props.clusterId, ref_.value)
   } catch (err) {
     error.value = message(err)
-    inspect.value = null
+    if (!quiet) inspect.value = null
   } finally {
     loading.value = false
   }
@@ -141,7 +141,28 @@ function onKey(event: KeyboardEvent) {
 
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
-watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate: true })
+
+watch(
+  () => [props.clusterId, props.kind, props.row.name, props.row.namespace],
+  () => {
+    yamlOpen.value = false
+    labelsOpen.value = false
+    annotationsOpen.value = false
+    inspect.value = null
+    void load()
+  },
+  { immediate: true },
+)
+
+// Refresh must not tear the drawer down: an open eye should keep showing the
+// (now live) value instead of flashing Loading and hiding it again.
+watch(
+  () => props.revision,
+  (tick) => {
+    if (!tick) return
+    void load({ quiet: true })
+  },
+)
 </script>
 
 <template>
@@ -314,6 +335,7 @@ watch(() => [props.kind, props.row.name, props.row.namespace], load, { immediate
 
         <ConfigData
           v-if="isConfig"
+          :key="row.key"
           class="mt-6"
           :entries="inspect?.data ?? []"
           :sensitive="isSecret"

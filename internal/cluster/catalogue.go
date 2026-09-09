@@ -9,40 +9,6 @@ import (
 	"biebie-kube/internal/kube"
 )
 
-// catalogueFor builds the navigation one cluster serves.
-//
-// This is where the compiled-in catalogue and the cluster's own definitions
-// meet, and it is deliberately the only place they do: the resource services
-// then work from one list and cannot disagree with the sidebar about whether a
-// kind exists.
-func catalogueFor(served []kube.APIResource, customs []kube.CustomResource) []domain.KindInfo {
-	full := domain.Catalogue()
-
-	// Discovery that returned nothing is not evidence that the cluster serves
-	// nothing — an aggregated API server being unhealthy fails the whole call.
-	// The built-in kinds stand in that case; custom ones cannot, because there
-	// is nothing to have discovered them from.
-	out := full
-	if len(served) > 0 {
-		available := make(map[string]struct{}, len(served))
-		for _, resource := range served {
-			available[resource.Group+"/"+resource.Resource] = struct{}{}
-		}
-
-		out = make([]domain.KindInfo, 0, len(full)+len(customs))
-		for _, info := range full {
-			if _, ok := available[info.Group+"/"+info.Resource]; ok {
-				out = append(out, info)
-			}
-		}
-	}
-
-	for _, custom := range customs {
-		out = append(out, customKindInfo(custom))
-	}
-	return out
-}
-
 // customKindInfo turns one definition into a navigable entry.
 //
 // The title prefers the definition's own kind name over its plural, so the

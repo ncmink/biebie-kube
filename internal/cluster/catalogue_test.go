@@ -42,7 +42,10 @@ func TestCatalogueKeepsBuiltInsWhenDiscoveryFailed(t *testing.T) {
 }
 
 func TestCatalogueAddsCustomKinds(t *testing.T) {
-	served := []kube.APIResource{{Group: "", Resource: "pods"}}
+	served := []kube.APIResource{
+		{Group: "", Resource: "pods"},
+		{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications", Kind: "Application", Namespaced: true, Verbs: []string{"list"}},
+	}
 	customs := []kube.CustomResource{{
 		Group: "argoproj.io", Version: "v1alpha1", Plural: "applications",
 		Kind: "Application", Namespaced: true,

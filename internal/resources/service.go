@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -118,9 +119,17 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 		}
 	}
 
-	objects, loading, err := s.read(ctx, clusterID, info, query.Namespace, true)
+	objects, outcome, err := s.read(ctx, clusterID, info, query.Namespace, true)
 	if err != nil {
 		return domain.ResourcePage{}, err
+	}
+	if outcome.access == domain.ListAccessForbidden {
+		return domain.ResourcePage{
+			Kind:       kind,
+			Columns:    info.Columns,
+			Namespaced: info.Namespaced,
+			Access:     domain.ListAccessForbidden,
+		}, nil
 	}
 
 	rendered := s.ensureTable(key, info)
@@ -129,7 +138,7 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 		// and the page that follows carries the usage with them.
 		rendered.setUsage(s.usageFor(ctx, clusterID, true))
 	}
-	rendered.replace(objects, loading)
+	rendered.replace(objects, outcome.loading, outcome.access, outcome.observedAt)
 	return rendered.page(query), nil
 }
 
@@ -241,7 +250,7 @@ func (s *Service) refresh(clusterID string, key view, rendered *table, change ku
 			return nil, false, err
 		}
 		objects := toUnstructured(cached)
-		rendered.replace(objects, false)
+		rendered.replace(objects, false, domain.ListAccessLive, nil)
 		return keysIn(objects), true, nil
 	}
 
@@ -261,27 +270,25 @@ func (s *Service) refresh(clusterID string, key view, rendered *table, change ku
 	return touched, reordered, nil
 }
 
+// readOutcome reports how a list was obtained.
+type readOutcome struct {
+	loading    bool
+	access     domain.ListAccess
+	observedAt *time.Time
+}
+
 // read returns objects from the informer cache when it is warm, and from one
 // bounded API request otherwise.
-//
-// subscribe starts a watch on the way past, which is what a table wants: its
-// next update should arrive as an event rather than a poll. A search does not
-// want it — scanning eleven kinds would start eleven informers and evict the
-// cache belonging to the table the engineer is actually looking at.
-//
-// The second return value reports that more objects exist than were read, so
-// the page can say the counts are still settling instead of presenting a
-// prefix as the whole list.
 func (s *Service) read(
 	ctx context.Context,
 	clusterID string,
 	info domain.KindInfo,
 	namespace string,
 	subscribe bool,
-) ([]*unstructured.Unstructured, bool, error) {
+) ([]*unstructured.Unstructured, readOutcome, error) {
 	client, err := s.clusters.Client(clusterID)
 	if err != nil {
-		return nil, false, err
+		return nil, readOutcome{}, err
 	}
 	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
 
@@ -290,7 +297,7 @@ func (s *Service) read(
 		if watch := hub.Existing(gvr, namespace); watch != nil {
 			cached, err := watch.List(namespace)
 			if err == nil {
-				return toUnstructured(cached), false, nil
+				return toUnstructured(cached), readOutcome{access: domain.ListAccessLive}, nil
 			}
 		}
 	}
@@ -303,18 +310,42 @@ func (s *Service) read(
 		list, err = client.Dynamic.Resource(gvr).Namespace(namespace).List(ctx, options)
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("list %s: %w", gvr.Resource, err)
+		if apierrors.IsForbidden(err) {
+			return nil, readOutcome{access: domain.ListAccessForbidden}, nil
+		}
+		return nil, readOutcome{}, fmt.Errorf("list %s: %w", gvr.Resource, err)
 	}
 
-	if subscribe && hubErr == nil {
+	now := time.Now().UTC()
+	outcome := readOutcome{observedAt: &now}
+	canWatch := hasVerb(info.Verbs, "watch")
+	if subscribe && hubErr == nil && canWatch {
 		hub.Ensure(gvr, namespace)
+		outcome.access = domain.ListAccessLive
+		outcome.loading = list.GetContinue() != ""
+	} else {
+		outcome.access = domain.ListAccessSnapshot
+		outcome.loading = false
 	}
 
 	out := make([]*unstructured.Unstructured, 0, len(list.Items))
 	for i := range list.Items {
 		out = append(out, &list.Items[i])
 	}
-	return out, list.GetContinue() != "", nil
+	if outcome.loading {
+		return out, outcome, nil
+	}
+	outcome.loading = list.GetContinue() != ""
+	return out, outcome, nil
+}
+
+func hasVerb(verbs []string, want string) bool {
+	for _, verb := range verbs {
+		if verb == want {
+			return true
+		}
+	}
+	return false
 }
 
 // readMatching returns the objects of one kind in a namespace whose labels a
@@ -338,7 +369,8 @@ func (s *Service) readMatching(
 	selector labels.Selector,
 ) ([]*unstructured.Unstructured, bool, error) {
 	if selector == nil || selector.Empty() {
-		return s.read(ctx, clusterID, info, namespace, false)
+		objects, outcome, err := s.read(ctx, clusterID, info, namespace, false)
+		return objects, outcome.loading, err
 	}
 
 	client, err := s.clusters.Client(clusterID)
@@ -443,8 +475,8 @@ func (s *Service) Search(ctx context.Context, clusterID, query, namespace string
 		if !info.Namespaced {
 			scope = domain.AllNamespaces
 		}
-		objects, _, err := s.read(ctx, clusterID, info, scope, false)
-		if err != nil {
+		objects, outcome, err := s.read(ctx, clusterID, info, scope, false)
+		if err != nil || outcome.access == domain.ListAccessForbidden {
 			// A kind this account cannot list is skipped rather than failing
 			// the whole search.
 			continue

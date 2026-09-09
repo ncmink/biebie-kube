@@ -21,10 +21,6 @@ var crdGVR = schema.GroupVersionResource{
 
 // CustomResource is one custom type a cluster serves, resolved to the single
 // version this application should address.
-//
-// A CRD may serve several versions at once. Only the storage version is
-// described here: it is the one the API server persists and converts the
-// others to, so reading it is reading what the cluster actually holds.
 type CustomResource struct {
 	Group    string `json:"group"`
 	Version  string `json:"version"`
@@ -34,10 +30,11 @@ type CustomResource struct {
 
 	Namespaced bool `json:"namespaced"`
 
-	// Columns are the table columns the definition declares for itself. They
-	// are what `kubectl get` prints, which makes them the cluster owner's own
-	// answer to "what matters about this resource".
+	// Columns are the table columns for the resolved version.
 	Columns []PrinterColumn `json:"columns"`
+
+	// ServedVersions lists every served version name in deterministic order.
+	ServedVersions []string `json:"servedVersions,omitempty"`
 }
 
 // PrinterColumn is one column a CustomResourceDefinition declares.
@@ -97,44 +94,63 @@ func describeCRD(obj *unstructured.Unstructured) (CustomResource, bool) {
 	described.Kind, _, _ = unstructured.NestedString(obj.Object, "spec", "names", "kind")
 	described.ListKind, _, _ = unstructured.NestedString(obj.Object, "spec", "names", "listKind")
 
-	version, ok := storageVersion(obj)
+	version, columns, served, ok := resolveCRDVersion(obj, "")
 	if !ok {
 		return CustomResource{}, false
 	}
-	described.Version, _, _ = unstructured.NestedString(version, "name")
-	if described.Version == "" {
-		return CustomResource{}, false
-	}
-	described.Columns = printerColumns(version)
+	described.Version = version
+	described.Columns = columns
+	described.ServedVersions = served
 
 	return described, true
 }
 
-// storageVersion picks the version to address.
-//
-// The storage version is preferred because it is what the cluster persists.
-// The first served version is the fallback for a definition that names no
-// storage version at all, which is invalid but must not cost the whole entry.
-func storageVersion(obj *unstructured.Unstructured) (map[string]any, bool) {
-	versions, _, _ := unstructured.NestedSlice(obj.Object, "spec", "versions")
+// ResolveCRDVersion picks the version and columns for one definition.
+func ResolveCRDVersion(obj *unstructured.Unstructured, preferred string) (version string, columns []PrinterColumn, ok bool) {
+	version, columns, _, ok = resolveCRDVersion(obj, preferred)
+	return version, columns, ok
+}
 
+func resolveCRDVersion(obj *unstructured.Unstructured, preferred string) (string, []PrinterColumn, []string, bool) {
+	versions, _, _ := unstructured.NestedSlice(obj.Object, "spec", "versions")
+	served := make([]string, 0, len(versions))
+	var storage map[string]any
 	var fallback map[string]any
 	for _, raw := range versions {
 		version, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		if served, _, _ := unstructured.NestedBool(version, "served"); !served {
+		name, _, _ := unstructured.NestedString(version, "name")
+		if servedFlag, _, _ := unstructured.NestedBool(version, "served"); !servedFlag {
 			continue
 		}
-		if storage, _, _ := unstructured.NestedBool(version, "storage"); storage {
-			return version, true
+		if name != "" {
+			served = append(served, name)
+		}
+		if preferred != "" && name == preferred {
+			return name, printerColumns(version), served, true
+		}
+		if storageFlag, _, _ := unstructured.NestedBool(version, "storage"); storageFlag {
+			storage = version
 		}
 		if fallback == nil {
 			fallback = version
 		}
 	}
-	return fallback, fallback != nil
+	sort.Strings(served)
+	chosen := storage
+	if chosen == nil {
+		chosen = fallback
+	}
+	if chosen == nil {
+		return "", nil, served, false
+	}
+	name, _, _ := unstructured.NestedString(chosen, "name")
+	if name == "" {
+		return "", nil, served, false
+	}
+	return name, printerColumns(chosen), served, true
 }
 
 // printerColumns reads the columns a version declares.

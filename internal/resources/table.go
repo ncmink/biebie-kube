@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -53,6 +54,9 @@ type table struct {
 
 	loading bool
 
+	access     domain.ListAccess
+	observedAt *time.Time
+
 	// scratch backs the filter-and-sort pass, reused between calls.
 	scratch []domain.ResourceRow
 }
@@ -62,7 +66,7 @@ func newTable(info domain.KindInfo) *table {
 }
 
 // replace renders a complete set of objects, discarding what was there.
-func (t *table) replace(objects []*unstructured.Unstructured, loading bool) {
+func (t *table) replace(objects []*unstructured.Unstructured, loading bool, access domain.ListAccess, observedAt *time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -73,6 +77,12 @@ func (t *table) replace(objects []*unstructured.Unstructured, loading bool) {
 	}
 	t.rows = rows
 	t.loading = loading
+	if access != "" {
+		t.access = access
+	}
+	if observedAt != nil {
+		t.observedAt = observedAt
+	}
 }
 
 // apply re-renders the objects that changed and forgets the ones that are
@@ -245,6 +255,8 @@ func (t *table) page(query domain.ListQuery) domain.ResourcePage {
 		Matched:    t.matched,
 		Offset:     query.Offset,
 		Loading:    t.loading,
+		Access:     t.access,
+		ObservedAt: t.observedAt,
 	}
 }
 

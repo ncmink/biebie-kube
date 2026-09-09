@@ -174,6 +174,25 @@ func (s *Service) Close(sessionID string) {
 	}
 }
 
+// CloseCluster ends every session belonging to one cluster.
+func (s *Service) CloseCluster(clusterID string) {
+	s.mu.Lock()
+	var closing []*execSession
+	for id, session := range s.sessions {
+		if session.info.ClusterID != clusterID {
+			continue
+		}
+		closing = append(closing, session)
+		delete(s.sessions, id)
+	}
+	s.mu.Unlock()
+
+	for _, session := range closing {
+		_ = session.stdin.Close()
+		session.cancel()
+	}
+}
+
 // CloseAll ends every session, on disconnect or shutdown.
 func (s *Service) CloseAll() {
 	s.mu.Lock()

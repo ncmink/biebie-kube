@@ -119,6 +119,17 @@ type KindInfo struct {
 	// definition's own, so two clusters can show the same kind differently.
 	Custom bool `json:"custom,omitempty"`
 
+	// MetadataSource records whether navigation metadata came from the
+	// compiled-in catalogue, CRD enrichment or discovery alone.
+	MetadataSource MetadataSource `json:"metadataSource,omitempty"`
+
+	// Unverified marks a built-in kind shown without successful API discovery.
+	Unverified bool `json:"unverified,omitempty"`
+
+	// Verbs are the API verbs discovery reported for this type. Object-level
+	// RBAC may still deny them individually.
+	Verbs []string `json:"verbs,omitempty"`
+
 	// Actions are the changes this kind accepts beyond editing its manifest.
 	//
 	// They are declared here so the menu the user right-clicks and the code
@@ -261,6 +272,12 @@ type ResourcePage struct {
 	// still filling its cache. The counts are a floor, not the truth, and the
 	// watch will correct them within moments.
 	Loading bool `json:"loading,omitempty"`
+
+	// Access reports whether the view is live, snapshot-only or forbidden.
+	Access ListAccess `json:"access,omitempty"`
+
+	// ObservedAt is when a snapshot-only view was last read from the API.
+	ObservedAt *time.Time `json:"observedAt,omitempty"`
 }
 
 // ContainerInfo describes one container of a pod, for the container selector

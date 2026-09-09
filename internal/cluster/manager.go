@@ -8,6 +8,7 @@ import (
 	"time"
 
 	bctx "github.com/ncmink/biebie-protocol/context"
+	"github.com/google/uuid"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
@@ -41,8 +42,9 @@ type Emitter interface {
 
 // Events published by the manager.
 const (
-	EventSessionChanged   = "cluster:session"
-	EventResourcesChanged = "cluster:resources"
+	EventSessionChanged    = "cluster:session"
+	EventResourcesChanged  = "cluster:resources"
+	EventCatalogueChanged  = "cluster:catalogue"
 )
 
 // ResourceChange tells the frontend which resource type went stale.
@@ -79,6 +81,9 @@ type session struct {
 
 	namespaces []string
 	resources  []kube.APIResource
+
+	sessionEpoch string
+	discovery    domain.DiscoverySnapshot
 
 	// catalogue is the navigation this cluster serves, and kinds is the same
 	// list keyed for lookup. Both are per-session because custom resources are
@@ -188,6 +193,7 @@ func (m *Manager) sessionView(clusterID string) domain.Session {
 		ClusterID:     clusterID,
 		State:         s.state,
 		Namespace:     s.namespace,
+		SessionEpoch:  s.sessionEpoch,
 		ServerVersion: s.serverVersion,
 		ConnectedAt:   s.connectedAt,
 		Diagnosis:     s.diagnosis,
@@ -246,6 +252,57 @@ func (m *Manager) Catalogue(clusterID string) []domain.KindInfo {
 		return append([]domain.KindInfo(nil), s.catalogue...)
 	}
 	return domain.Catalogue()
+}
+
+// DiscoverySnapshot returns the last catalogue discovery result for a cluster.
+func (m *Manager) DiscoverySnapshot(clusterID string) (domain.DiscoverySnapshot, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s, ok := m.sessions[clusterID]
+	if !ok || s.sessionEpoch == "" {
+		return domain.DiscoverySnapshot{}, false
+	}
+	return s.discovery, true
+}
+
+// RefreshCatalogue re-reads API discovery and CRD metadata without reconnecting.
+func (m *Manager) RefreshCatalogue(ctx context.Context, clusterID string) (domain.DiscoverySnapshot, error) {
+	client, err := m.Client(clusterID)
+	if err != nil {
+		return domain.DiscoverySnapshot{}, err
+	}
+
+	discovery, err := client.DiscoverResources(ctx)
+	if err != nil && len(discovery.Resources) == 0 {
+		return domain.DiscoverySnapshot{}, err
+	}
+	customs, crdErr := client.CustomResources(ctx)
+
+	m.mu.Lock()
+	s, ok := m.sessions[clusterID]
+	if !ok {
+		m.mu.Unlock()
+		return domain.DiscoverySnapshot{}, fmt.Errorf("cluster is not connected")
+	}
+	catalogue, snapshot := BuildCatalogue(CatalogueInput{
+		ClusterID:    clusterID,
+		SessionEpoch: s.sessionEpoch,
+		Discovery:    discovery,
+		Customs:      customs,
+		CRDErr:       crdErr,
+	})
+	kinds := make(map[domain.Kind]domain.KindInfo, len(catalogue))
+	for _, info := range catalogue {
+		kinds[info.Kind] = info
+	}
+	s.resources = discovery.Resources
+	s.catalogue = catalogue
+	s.kinds = kinds
+	s.discovery = snapshot
+	m.mu.Unlock()
+
+	m.emit(EventCatalogueChanged, snapshot)
+	return snapshot, nil
 }
 
 // LookupKind resolves a kind for one cluster.
@@ -394,14 +451,22 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 	// cluster for that reason would make Biebie Kube useless exactly where
 	// least privilege is practised.
 	namespaces, _ := client.Namespaces(ctx)
-	resources, _ := client.ServerResources(ctx)
+	discovery, _ := client.DiscoverResources(ctx)
 
 	// Definitions are read once per connection rather than per navigation: the
 	// set only changes when someone installs an operator, and the sidebar needs
 	// it before the first click. An account that may not list them cluster-wide
 	// gets a navigation without a custom section, which is the truth for it.
-	customs, _ := client.CustomResources(ctx)
-	catalogue := catalogueFor(resources, customs)
+	customs, crdErr := client.CustomResources(ctx)
+	sessionEpoch := uuid.NewString()
+	catalogue, discoverySnapshot := BuildCatalogue(CatalogueInput{
+		ClusterID:    clusterID,
+		SessionEpoch: sessionEpoch,
+		Discovery:    discovery,
+		Customs:      customs,
+		CRDErr:       crdErr,
+	})
+	resources := discovery.Resources
 
 	kinds := make(map[domain.Kind]domain.KindInfo, len(catalogue))
 	for _, info := range catalogue {
@@ -433,6 +498,8 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 		connectedAt:   &now,
 		namespaces:    namespaces,
 		resources:     resources,
+		sessionEpoch:  sessionEpoch,
+		discovery:     discoverySnapshot,
 		catalogue:     catalogue,
 		kinds:         kinds,
 		forwards:      network.extras,

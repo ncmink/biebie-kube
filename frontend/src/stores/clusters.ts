@@ -8,6 +8,7 @@ import type {
   Cluster,
   ClusterView,
   CustomerGroup,
+  DiscoverySnapshot,
   KindInfo,
   Session,
 } from '@/types'
@@ -38,6 +39,7 @@ export const useClusterStore = defineStore('clusters', () => {
   const sessions = ref<Record<string, Session>>({})
   const namespaces = ref<Record<string, string[]>>({})
   const catalogues = ref<Record<string, KindInfo[]>>({})
+  const discovery = ref<Record<string, DiscoverySnapshot>>({})
   const accessStates = ref<Record<string, AccessState>>({})
 
   /**
@@ -211,6 +213,16 @@ export const useClusterStore = defineStore('clusters', () => {
 
   async function loadCatalogue(clusterId: string) {
     catalogues.value[clusterId] = await api.resourceCatalogue(clusterId)
+    try {
+      discovery.value[clusterId] = await api.discoverySnapshot(clusterId)
+    } catch {
+      delete discovery.value[clusterId]
+    }
+  }
+
+  async function refreshCatalogue(clusterId: string) {
+    discovery.value[clusterId] = await api.refreshResourceCatalogue(clusterId)
+    catalogues.value[clusterId] = await api.resourceCatalogue(clusterId)
   }
 
   async function setNamespace(clusterId: string, namespace: string) {
@@ -298,6 +310,10 @@ export const useClusterStore = defineStore('clusters', () => {
         void loadCatalogue(session.clusterId)
       }
     })
+    on(events.catalogue, (snapshot) => {
+      discovery.value[snapshot.clusterId] = snapshot
+      void loadCatalogue(snapshot.clusterId)
+    })
     on(events.accessChanged, (event) => {
       void refreshAccess(event.profileId)
     })
@@ -310,6 +326,7 @@ export const useClusterStore = defineStore('clusters', () => {
     sessions,
     namespaces,
     catalogues,
+    discovery,
     accessStates,
     accessAsked,
     accessOpening,
@@ -335,6 +352,7 @@ export const useClusterStore = defineStore('clusters', () => {
     open,
     close,
     setNamespace,
+    refreshCatalogue,
     refreshAccess,
     connectWithAccess,
     subscribe,

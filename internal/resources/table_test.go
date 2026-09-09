@@ -40,7 +40,7 @@ func pods(t *testing.T, count int) []*unstructured.Unstructured {
 func podTable(t *testing.T, count int) *table {
 	t.Helper()
 	rendered := newTable(builtin(t, domain.KindPod))
-	rendered.replace(pods(t, count), false)
+	rendered.replace(pods(t, count), false, domain.ListAccessLive, nil)
 	return rendered
 }
 
@@ -118,7 +118,7 @@ func TestSortByAColumnOrdersNumbersAsNumbers(t *testing.T) {
 
 func TestRowsWithoutTheSortedValueSinkToTheBottom(t *testing.T) {
 	rendered := newTable(builtin(t, domain.KindPod))
-	rendered.replace(pods(t, 3), false)
+	rendered.replace(pods(t, 3), false, domain.ListAccessLive, nil)
 
 	// A pod metrics-server has not answered for has no CPU cell at all.
 	rendered.setUsage(map[string]usageRow{
@@ -288,7 +288,7 @@ func TestPatchFillsTheWindowFromRowsBehindIt(t *testing.T) {
 // cluster large enough for it to matter.
 func BenchmarkPage(b *testing.B) {
 	rendered := newTable(mustBuiltin(domain.KindPod))
-	rendered.replace(benchmarkPods(50000), false)
+	rendered.replace(benchmarkPods(50000), false, domain.ListAccessLive, nil)
 
 	query := domain.ListQuery{Filter: "api-042", Limit: 500}
 
@@ -303,7 +303,7 @@ func BenchmarkPage(b *testing.B) {
 func BenchmarkPatch(b *testing.B) {
 	rendered := newTable(mustBuiltin(domain.KindPod))
 	all := benchmarkPods(50000)
-	rendered.replace(all, false)
+	rendered.replace(all, false, domain.ListAccessLive, nil)
 	rendered.page(domain.ListQuery{Limit: 500})
 
 	changed := all[:20]
@@ -324,7 +324,7 @@ func BenchmarkPatch(b *testing.B) {
 func BenchmarkPatchReordering(b *testing.B) {
 	rendered := newTable(mustBuiltin(domain.KindPod))
 	all := benchmarkPods(50000)
-	rendered.replace(all, false)
+	rendered.replace(all, false, domain.ListAccessLive, nil)
 	rendered.page(domain.ListQuery{Limit: 500})
 
 	touched := make([]string, 0, 20)

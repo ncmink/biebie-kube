@@ -67,6 +67,8 @@ export const api = {
   chooseKubeconfig: ClusterService.ChooseKubeconfig,
   forgetKubeconfig: ClusterService.ForgetKubeconfig,
   resourceCatalogue: list(ClusterService.ResourceCatalogue),
+  discoverySnapshot: ClusterService.DiscoverySnapshot,
+  refreshResourceCatalogue: ClusterService.RefreshResourceCatalogue,
 
   listResources: ResourceService.ListResources,
   countResources: list(ResourceService.CountResources),
@@ -160,6 +162,7 @@ export const api = {
  */
 export const events = {
   session: 'cluster:session',
+  catalogue: 'cluster:catalogue',
   resources: 'cluster:resources',
   rows: 'cluster:rows',
   logChunk: 'logs:chunk',

@@ -112,6 +112,10 @@ type Session struct {
 
 	Namespace string `json:"namespace"`
 
+	// SessionEpoch changes on every successful connection so async work can
+	// tell a stale cluster session from the current one.
+	SessionEpoch string `json:"sessionEpoch,omitempty"`
+
 	ServerVersion string `json:"serverVersion,omitempty"`
 
 	ConnectedAt *time.Time `json:"connectedAt,omitempty"`

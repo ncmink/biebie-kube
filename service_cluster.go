@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -214,6 +215,21 @@ func (s *ClusterService) SetAutoImportEnabled(enabled bool) error {
 // and the custom kinds its own definitions declare.
 func (s *ClusterService) ResourceCatalogue(clusterID string) []domain.KindInfo {
 	return s.core.clusters.Catalogue(clusterID)
+}
+
+// DiscoverySnapshot returns the last discovery result for a connected cluster.
+func (s *ClusterService) DiscoverySnapshot(clusterID string) (domain.DiscoverySnapshot, error) {
+	snapshot, ok := s.core.clusters.DiscoverySnapshot(clusterID)
+	if !ok {
+		return domain.DiscoverySnapshot{}, describe(fmt.Errorf("cluster is not connected"))
+	}
+	return snapshot, nil
+}
+
+// RefreshResourceCatalogue re-reads API discovery without reconnecting.
+func (s *ClusterService) RefreshResourceCatalogue(ctx context.Context, clusterID string) (domain.DiscoverySnapshot, error) {
+	snapshot, err := s.core.clusters.RefreshCatalogue(ctx, clusterID)
+	return snapshot, describe(err)
 }
 
 func (s *ClusterService) serverFor(input domain.ClusterInput) (string, error) {

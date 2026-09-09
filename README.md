@@ -1110,6 +1110,15 @@ listed but never decoded without a deliberate action.
 
 ## Development
 
+Planned incident-workspace improvements are documented in the
+[implementation plan](docs/incident-workspace-plan.md),
+[product and technical specification](docs/incident-workspace-spec.md) and
+[progress log](docs/incident-workspace-progress.md).
+
+Release **0.2.11** adds CRD discovery fallback: API discovery drives navigation
+even when listing CRD definitions is forbidden, partial API group failures are
+surfaced in the sidebar, and the catalogue can be refreshed without reconnecting.
+
 ```bash
 wails3 dev                     # run with hot reload
 go test ./...                  # backend

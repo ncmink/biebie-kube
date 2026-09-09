@@ -42,8 +42,8 @@ npm --prefix frontend run build                                                 
 | รายการ | ค่า |
 |---|---|
 | Branch | `feat/iw-01-discovery-fallback` |
-| Commit | _(เติมหลัง commit)_ |
-| PR | _(เติมหลัง gh pr create)_ |
+| Commit | `533e3fb9c90766baceca18669a1b7b704c5579dc` |
+| PR | ⏸ push ถูก deny (`napisoot-ttss` → `ncmink/biebie-kube`); ต้อง push/เปิด PR ด้วย account ที่มีสิทธิ์ |
 | Version | 0.2.11 |
 
 ### Published artifacts & smoke test

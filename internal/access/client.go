@@ -118,6 +118,9 @@ func (c *Client) Connect(ctx context.Context, profileID string) (string, error) 
 	if err := c.rpc.Call(ctx, ipc.MethodAccessConnect, map[string]string{"profileId": profileID}, &result); err != nil {
 		return "", err
 	}
+	if !result.Accepted {
+		return "", fmt.Errorf("Biebie Access did not accept the connect request")
+	}
 	c.Forget(profileID)
 	if result.ProfileID == "" {
 		// An older Biebie Access acknowledged without naming what it resolved,

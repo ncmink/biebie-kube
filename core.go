@@ -69,6 +69,8 @@ type Core struct {
 	launcher *access.Launcher
 	server   *access.Server
 
+	accessCoord *accessCoordinator
+
 	resources *resources.Service
 	manifests *manifest.Service
 	logs      *logs.Service
@@ -104,6 +106,7 @@ func NewCore() (*Core, error) {
 	}
 	core.access = accessClient
 	core.launcher = access.NewLauncher()
+	core.accessCoord = newAccessCoordinator()
 	core.reveal = reveal.New()
 
 	events := emitter{}
@@ -216,10 +219,14 @@ func (c *Core) onAccessSessionChanged(event bctx.AccessSessionChanged) {
 	c.access.Forget(event.ProfileID)
 	emit(EventAccessChanged, event)
 
-	if event.State != bctx.AccessConnected {
-		return
+	c.reconcileAccessProfile(context.Background(), event.ProfileID)
+
+	switch event.State {
+	case bctx.AccessConnected:
+		c.retryAccessOnce(context.Background(), event.ProfileID)
+	case bctx.AccessDisconnected, bctx.AccessFailed:
+		c.handleAccessDown(event.ProfileID)
 	}
-	c.clusters.RetryWaiting(context.Background(), event.ProfileID)
 }
 
 // emitter adapts the application to the event interface the internal services

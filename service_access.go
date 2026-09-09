@@ -78,8 +78,10 @@ func (s *AccessService) ConnectWithAccess(ctx context.Context, profileID, custom
 
 	launch := s.core.launcher.ConnectProfile(ctx, profileID, customerID)
 	if launch == nil {
-		// Nothing answered, so nothing resolved anything: the reference stands
-		// as it was configured.
+		// Access was cold-launched with the configured reference. The UUID will
+		// be adopted when the first session event arrives, or when Profiles()
+		// resolves the name during reconcile.
+		s.core.noteAccessLaunched(profileID)
 		return profileID, nil
 	}
 	// Neither route worked. Not being installed is the likeliest reason and the

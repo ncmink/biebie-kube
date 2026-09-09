@@ -631,6 +631,48 @@ func (m *Manager) SetNamespace(clusterID, namespace string) error {
 	return nil
 }
 
+// ClustersForAccessProfile returns clusters configured against one Biebie
+// Access profile identifier.
+func (m *Manager) ClustersForAccessProfile(profileID string) []string {
+	clusters := m.repo.All()
+	out := make([]string, 0, len(clusters))
+	for _, cluster := range clusters {
+		if cluster.Access.Required && cluster.Access.ProfileID == profileID {
+			out = append(out, cluster.ID)
+		}
+	}
+	return out
+}
+
+// SuspendForAccessDown tears down a connected session that was using SSH
+// forwards from Biebie Access, and leaves the cluster waiting to retry.
+func (m *Manager) SuspendForAccessDown(clusterID string) {
+	m.mu.Lock()
+	s, ok := m.sessions[clusterID]
+	if !ok || s.state != domain.ClusterConnected || s.apiForward == nil {
+		m.mu.Unlock()
+		return
+	}
+	if s.hub != nil {
+		s.hub.Close()
+	}
+	if s.client != nil {
+		s.client.Close()
+	}
+	cluster := s.cluster
+	delete(m.sessions, clusterID)
+	m.mu.Unlock()
+
+	detail := "The SSH tunnel Biebie Access was lending disconnected. Biebie Kube will retry when it comes back."
+	diag := &domain.Diagnosis{
+		Kind:            domain.FailureAccessDown,
+		Summary:         "Customer network access dropped.",
+		Detail:          detail,
+		AccessProfileID: cluster.Access.ProfileID,
+	}
+	m.transition(cluster, domain.ClusterWaitingAccess, diag, diag.Summary)
+}
+
 // RetryWaiting reconnects clusters that were only waiting on a customer
 // network, after Biebie Access reports that profile came up.
 //

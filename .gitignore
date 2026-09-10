@@ -14,3 +14,4 @@ frontend/bindings
 # committing it would let anyone publish an update this app trusts.
 /updater-key
 /updater-key.pub
+/biebie-kube

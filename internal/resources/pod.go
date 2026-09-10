@@ -7,6 +7,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"biebie-kube/internal/domain"
 )
@@ -41,9 +42,13 @@ func (s *Service) PodDetail(ctx context.Context, clusterID, namespace, name stri
 	statuses := make(map[string]int32, len(pod.Status.ContainerStatuses))
 	ready := make(map[string]bool, len(pod.Status.ContainerStatuses))
 	states := make(map[string]string, len(pod.Status.ContainerStatuses))
+	lastReason := make(map[string]string, len(pod.Status.ContainerStatuses))
+	lastExit := make(map[string]int32, len(pod.Status.ContainerStatuses))
 	for _, status := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
 		statuses[status.Name] = status.RestartCount
 		ready[status.Name] = status.Ready
+		lastReason[status.Name] = terminationReason(status.LastTerminationState)
+		lastExit[status.Name] = terminationExit(status.LastTerminationState)
 		switch {
 		case status.State.Waiting != nil:
 			states[status.Name] = status.State.Waiting.Reason
@@ -56,11 +61,13 @@ func (s *Service) PodDetail(ctx context.Context, clusterID, namespace, name stri
 
 	for _, container := range pod.Spec.Containers {
 		detail.Containers = append(detail.Containers, domain.ContainerInfo{
-			Name:         container.Name,
-			Image:        container.Image,
-			Ready:        ready[container.Name],
-			State:        states[container.Name],
-			RestartCount: statuses[container.Name],
+			Name:                  container.Name,
+			Image:                 container.Image,
+			Ready:                 ready[container.Name],
+			State:                 states[container.Name],
+			RestartCount:          statuses[container.Name],
+			LastTerminationReason: lastReason[container.Name],
+			LastExitCode:          lastExit[container.Name],
 		})
 		for _, port := range container.Ports {
 			detail.Ports = append(detail.Ports, domain.ContainerPort{
@@ -72,12 +79,14 @@ func (s *Service) PodDetail(ctx context.Context, clusterID, namespace, name stri
 	}
 	for _, container := range pod.Spec.InitContainers {
 		detail.InitContainers = append(detail.InitContainers, domain.ContainerInfo{
-			Name:         container.Name,
-			Image:        container.Image,
-			Ready:        ready[container.Name],
-			State:        states[container.Name],
-			RestartCount: statuses[container.Name],
-			Init:         true,
+			Name:                  container.Name,
+			Image:                 container.Image,
+			Ready:                 ready[container.Name],
+			State:                 states[container.Name],
+			RestartCount:          statuses[container.Name],
+			LastTerminationReason: lastReason[container.Name],
+			LastExitCode:          lastExit[container.Name],
+			Init:                  true,
 		})
 	}
 
@@ -119,6 +128,20 @@ func podHealth(detail domain.PodDetail) domain.Health {
 		return domain.HealthHealthy
 	}
 	return domain.HealthProgress
+}
+
+func terminationReason(state corev1.ContainerState) string {
+	if state.Terminated != nil {
+		return state.Terminated.Reason
+	}
+	return ""
+}
+
+func terminationExit(state corev1.ContainerState) int32 {
+	if state.Terminated != nil {
+		return state.Terminated.ExitCode
+	}
+	return 0
 }
 
 // Containers lists a pod's containers for the log and terminal selectors,

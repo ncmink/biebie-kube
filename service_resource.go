@@ -186,3 +186,9 @@ func (s *ResourceService) SearchResources(ctx context.Context, clusterID, query,
 	hits, err := s.core.resources.Search(ctx, clusterID, query, namespace)
 	return hits, describe(err)
 }
+
+// ExplainResource builds an evidence-based incident report for one object.
+func (s *ResourceService) ExplainResource(ctx context.Context, clusterID string, ref domain.ResourceRef) (domain.IncidentReport, error) {
+	report, err := s.core.incident.Explain(ctx, clusterID, ref)
+	return report, describe(err)
+}

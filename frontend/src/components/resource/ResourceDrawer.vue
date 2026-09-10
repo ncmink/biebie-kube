@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import ConfigData from '@/components/resource/ConfigData.vue'
 import EventList from '@/components/resource/EventList.vue'
 import GitOpsPanel from '@/components/resource/GitOpsPanel.vue'
+import IncidentPanel from '@/components/resource/IncidentPanel.vue'
 import RelatedGroups from '@/components/resource/RelatedGroups.vue'
 import { api, message } from '@/api'
 import { actionsFor } from '@/composables/actions'
@@ -316,6 +317,8 @@ watch(
         </section>
 
         <GitOpsPanel v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
+
+        <IncidentPanel v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 
         <RelatedGroups v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 

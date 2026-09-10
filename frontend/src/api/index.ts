@@ -93,6 +93,7 @@ export const api = {
   events: list(ResourceService.ListEvents),
   overview: ResourceService.GetClusterOverview,
   search: list(ResourceService.SearchResources),
+  explainResource: ResourceService.ExplainResource,
 
   // Resource authoring. Every entry is a domain operation: there is
   // deliberately nothing here that takes an executable and arguments.

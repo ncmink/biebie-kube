@@ -1,6 +1,6 @@
 # Incident Workspace — Progress
 
-อัปเดตล่าสุด: 2026-09-09
+อัปเดตล่าสุด: 2026-09-10
 
 ## ฟีเจอร์ปัจจุบัน
 
@@ -8,7 +8,8 @@
 |---|---|---|
 | IW-00 Baseline/fixtures | ✅ เสร็จ | `internal/testfixture/` + baseline tests |
 | IW-01 CRD discovery fallback | ✅ เสร็จ | released `v0.2.11` (`60c7c03`) |
-| IW-02 Read-only policy | 🚧 รอ release gate | implementation + tests ผ่าน locally |
+| IW-02 Read-only policy | ✅ เสร็จ | released `v0.2.12` (`7e3df2b`) |
+| IW-03 Explain Why | 🚧 รอ release gate | implementation + tests ผ่าน locally |
 
 ## IW-01 — CRD discovery fallback
 
@@ -60,23 +61,56 @@
 | Tab badge `RO` | `ClusterTabs.vue` |
 | Action dialog context | `ResourceActionDialog.vue` |
 
-### ผลทดสอบ (local, 2026-09-09)
+### Published
+
+| รายการ | ค่า |
+|---|---|
+| Tag | `v0.2.12` |
+| Merge | `7e3df2b` |
+
+## IW-03 — Explain Why
+
+### Requirement IDs
+
+| ID | สถานะ | หลักฐาน |
+|---|---|---|
+| EXP-01 | ✅ | Pod + Deployment/StatefulSet/DaemonSet/Job/PVC; custom kinds → not implemented message |
+| EXP-02 | ✅ | Collector: root object, related pods, container state, events (`internal/incident/service.go`) |
+| EXP-03 | ✅ (MVP) | CrashLoopBackOff, OOMKilled, ImagePullBackOff/ErrImagePull, scheduling, volume mount events |
+| EXP-04 | ✅ | Findings with severity, summary, explanation, confidenceClass, observedFacts vs possibleCauses |
+| EXP-05 | ✅ | Partial/unknown coverage; insufficient-evidence finding; no “healthy” inference |
+| EXP-06 | ✅ | No auto log fetch; next steps suggest opening logs |
+| EXP-07 | ✅ | Pure Go rules over bounded `EvidenceBundle`; reuses resource readers |
+| EXP-08 | ⏭️ | Cache/de-dupe deferred |
+| EXP-09 | ⏭️ | Collection budget/deadline deferred |
+| EXP-10 | ✅ | Safe excerpts only; no full YAML/logs in report |
+
+### API / UI
+
+| รายการ | ไฟล์ |
+|---|---|
+| `ExplainResource` | `service_resource.go` |
+| Collector + rules | `internal/incident/` |
+| Drawer Explain section | `ResourceDrawer.vue` |
+| Detail Explain tab | `ResourceDetail.vue`, `IncidentPanel.vue` |
+
+### ผลทดสอบ (local, 2026-09-10)
 
 ```text
-go test -race ./internal/policy ./internal/cluster/...  → PASS
-go build -tags production .                             → PASS
-wails3 generate bindings -clean=true -ts -i             → PASS
-npm --prefix frontend run build                         → PASS
+go test ./internal/incident/...                          → PASS
+wails3 generate bindings -clean=true -ts -i              → PASS
+npm --prefix frontend run build                          → PASS
+go build -tags production -o bin/biebie-kube .           → PASS
 ```
 
 ### Version
 
-`0.2.12`
+`0.2.13`
 
 ## ฟีเจอร์ถัดไป (หลัง release gate ผ่าน)
 
-**IW-03 Explain Why** (`EXP-*`)
+**IW-04 Query / search** (`QRY-*`)
 
 ## Baseline (IW-00)
 
-Fixtures ใน `internal/testfixture/incident.go` สำหรับ discovery scenarios และ pod states ที่ IW-03 จะ reuse
+Fixtures ใน `internal/testfixture/incident.go` สำหรับ discovery scenarios และ pod states ที่ IW-03 reuse

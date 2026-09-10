@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EventList from '@/components/resource/EventList.vue'
+import IncidentPanel from '@/components/resource/IncidentPanel.vue'
 import LogViewer from '@/components/logs/LogViewer.vue'
 import PodOverview from '@/components/workload/PodOverview.vue'
 import PortForwardDialog from '@/components/workload/PortForwardDialog.vue'
@@ -38,6 +39,26 @@ const cluster = computed(() => clusters.clusters.find((c) => c.id === props.clus
 const catalogue = computed(() => clusters.catalogues[props.clusterId] ?? [])
 const resourceKind = computed(() => asKind(props.kind, catalogue.value))
 const isPod = computed(() => resourceKind.value === Kind.KindPod)
+const explainable = computed(() => {
+  switch (resourceKind.value) {
+    case Kind.KindPod:
+    case Kind.KindDeployment:
+    case Kind.KindStatefulSet:
+    case Kind.KindDaemonSet:
+    case Kind.KindJob:
+    case Kind.KindPersistentVolumeClaim:
+      return true
+    default:
+      return false
+  }
+})
+
+const tabs = computed(() => {
+  if (!resourceKind.value) return []
+  if (isPod.value) return ['Overview', 'Logs', 'Terminal', 'YAML', 'Events', 'Explain']
+  if (explainable.value) return ['YAML', 'Events', 'Explain']
+  return ['YAML', 'Events']
+})
 
 // The catalogue holds the word the engineer wrote in their own manifests, which
 // beats trimming an "s" off a route segment — a custom kind's segment is
@@ -47,10 +68,6 @@ const heading = computed(() => {
   return singularTitle(entry?.title ?? props.kind)
 })
 
-const tabs = computed(() => {
-  if (!resourceKind.value) return []
-  return isPod.value ? ['Overview', 'Logs', 'Terminal', 'YAML', 'Events'] : ['YAML', 'Events']
-})
 const tab = ref(tabs.value[0])
 const deleting = ref(false)
 const forwarding = ref(false)
@@ -164,6 +181,9 @@ async function remove() {
         :namespace="realNamespace"
         :involving="name"
       />
+      <div v-else-if="tab === 'Explain' && ref_" class="h-full overflow-y-auto px-6 py-4">
+        <IncidentPanel :cluster-id="clusterId" :resource="ref_" />
+      </div>
       <p v-else-if="!catalogue.length" class="px-6 py-10 text-center text-sm text-ink-faint">
         Loading…
       </p>

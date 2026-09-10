@@ -290,6 +290,12 @@ type ContainerInfo struct {
 	State        string `json:"state"`
 	RestartCount int32  `json:"restartCount"`
 
+	// LastTerminationReason and LastExitCode come from the previous container
+	// instance. They matter after a restart when the current state is Running
+	// but the last exit explains why the pod is unhealthy.
+	LastTerminationReason string `json:"lastTerminationReason,omitempty"`
+	LastExitCode          int32  `json:"lastExitCode,omitempty"`
+
 	// Init marks init containers, whose logs are read differently.
 	Init bool `json:"init"`
 }

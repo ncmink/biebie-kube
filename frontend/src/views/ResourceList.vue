@@ -15,7 +15,7 @@ import type { ContextMenuItem } from '@/composables/menu'
 import { useClusterStore } from '@/stores/clusters'
 import { useResourceStore } from '@/stores/resources'
 import { useUIStore } from '@/stores/ui'
-import { EnvironmentKind } from '@/types'
+import { EnvironmentKind, AccessMode } from '@/types'
 import type { ResourceRow } from '@/types'
 
 const props = defineProps<{ clusterId: string; kind: string }>()
@@ -29,6 +29,9 @@ const kindInfo = computed(() =>
   (clusters.catalogues[props.clusterId] ?? []).find((entry) => entry.kind === props.kind),
 )
 const cluster = computed(() => clusters.clusters.find((entry) => entry.id === props.clusterId))
+const readOnly = computed(
+  () => clusters.policies[props.clusterId]?.effectiveMode === AccessMode.AccessModeReadOnly,
+)
 const resourceKind = computed(() => asKind(props.kind, clusters.catalogues[props.clusterId]))
 const heading = computed(() => singularTitle(kindInfo.value?.title ?? props.kind))
 const selected = ref<ResourceRow | null>(null)
@@ -167,7 +170,9 @@ async function remove() {
         Refresh
       </button>
       <button
-        class="rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
+        class="rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink disabled:opacity-40"
+        :disabled="readOnly"
+        :title="readOnly ? 'This cluster is read-only.' : undefined"
         @click="creating = true"
       >
         Create {{ heading }}…
@@ -232,6 +237,7 @@ async function remove() {
       :row="acting.row"
       :action="acting.action"
       :cluster="cluster"
+      :read-only="readOnly"
       @close="acting = null"
     />
 

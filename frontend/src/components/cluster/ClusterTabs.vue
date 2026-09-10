@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import StateDot from '@/components/common/StateDot.vue'
 import { useClusterStore } from '@/stores/clusters'
+import { AccessMode } from '@/types'
 
 /**
  * One tab per open cluster.
@@ -49,6 +50,12 @@ async function close(clusterId: string) {
       />
       <span class="max-w-40 truncate">
         {{ cluster.customerName || cluster.customerId }} · {{ cluster.name }}
+      </span>
+      <span
+        v-if="clusters.policies[cluster.id]?.effectiveMode === AccessMode.AccessModeReadOnly"
+        class="rounded bg-warn/20 px-1 text-[9px] font-bold tracking-wider text-warn"
+      >
+        RO
       </span>
       <span
         v-if="cluster.environmentKind === 'production'"

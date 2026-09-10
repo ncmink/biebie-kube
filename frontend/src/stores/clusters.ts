@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
-import { AccessConnectionState, ClusterState } from '@/types'
+import { AccessConnectionState, AccessMode, ClusterState } from '@/types'
 import type {
   AccessState,
   Cluster,
@@ -10,6 +10,7 @@ import type {
   CustomerGroup,
   DiscoverySnapshot,
   KindInfo,
+  OperationPolicy,
   Session,
 } from '@/types'
 
@@ -40,6 +41,7 @@ export const useClusterStore = defineStore('clusters', () => {
   const namespaces = ref<Record<string, string[]>>({})
   const catalogues = ref<Record<string, KindInfo[]>>({})
   const discovery = ref<Record<string, DiscoverySnapshot>>({})
+  const policies = ref<Record<string, OperationPolicy>>({})
   const accessStates = ref<Record<string, AccessState>>({})
 
   /**
@@ -66,6 +68,14 @@ export const useClusterStore = defineStore('clusters', () => {
     activeId.value ? sessions.value[activeId.value] : undefined,
   )
   const activeNamespace = computed(() => activeSession.value?.namespace ?? '')
+
+  const activePolicy = computed(() =>
+    activeId.value ? policies.value[activeId.value] : undefined,
+  )
+
+  const activeReadOnly = computed(
+    () => activePolicy.value?.effectiveMode === AccessMode.AccessModeReadOnly,
+  )
 
   const openClusters = computed(() =>
     openIds.value
@@ -172,7 +182,7 @@ export const useClusterStore = defineStore('clusters', () => {
     }
     try {
       sessions.value[clusterId] = await api.connectCluster(clusterId)
-      await Promise.all([loadNamespaces(clusterId), loadCatalogue(clusterId)])
+      await Promise.all([loadNamespaces(clusterId), loadCatalogue(clusterId), loadPolicy(clusterId)])
     } catch (err) {
       error.value = message(err)
     }
@@ -223,6 +233,18 @@ export const useClusterStore = defineStore('clusters', () => {
   async function refreshCatalogue(clusterId: string) {
     discovery.value[clusterId] = await api.refreshResourceCatalogue(clusterId)
     catalogues.value[clusterId] = await api.resourceCatalogue(clusterId)
+  }
+
+  async function loadPolicy(clusterId: string) {
+    policies.value[clusterId] = await api.operationPolicy(clusterId)
+  }
+
+  async function setClusterAccessMode(clusterId: string, mode: AccessMode) {
+    policies.value[clusterId] = await api.setClusterAccessMode(clusterId, mode)
+  }
+
+  async function setSessionReadOnly(clusterId: string, readOnly: boolean) {
+    policies.value[clusterId] = await api.setSessionReadOnly(clusterId, readOnly)
   }
 
   async function setNamespace(clusterId: string, namespace: string) {
@@ -308,7 +330,11 @@ export const useClusterStore = defineStore('clusters', () => {
       if (session.state === ClusterState.ClusterConnected) {
         void loadNamespaces(session.clusterId)
         void loadCatalogue(session.clusterId)
+        void loadPolicy(session.clusterId)
       }
+    })
+    on(events.policy, (policy) => {
+      policies.value[policy.clusterId] = policy
     })
     on(events.catalogue, (snapshot) => {
       discovery.value[snapshot.clusterId] = snapshot
@@ -327,6 +353,7 @@ export const useClusterStore = defineStore('clusters', () => {
     namespaces,
     catalogues,
     discovery,
+    policies,
     accessStates,
     accessAsked,
     accessOpening,
@@ -337,6 +364,8 @@ export const useClusterStore = defineStore('clusters', () => {
     active,
     activeSession,
     activeNamespace,
+    activePolicy,
+    activeReadOnly,
     openClusters,
     byCustomer,
     hiddenCount,
@@ -353,6 +382,9 @@ export const useClusterStore = defineStore('clusters', () => {
     close,
     setNamespace,
     refreshCatalogue,
+    loadPolicy,
+    setClusterAccessMode,
+    setSessionReadOnly,
     refreshAccess,
     connectWithAccess,
     subscribe,

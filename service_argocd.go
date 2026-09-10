@@ -48,6 +48,9 @@ func (s *ArgoCDService) ResolveGitOwnership(ctx context.Context, clusterID strin
 // deletes live resources and the dialog that sets it is where the engineer was
 // told so.
 func (s *ArgoCDService) SyncArgoApplications(ctx context.Context, clusterID string, req domain.ArgoSyncRequest) (domain.ArgoActionResult, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapArgoSync); err != nil {
+		return domain.ArgoActionResult{}, describe(err)
+	}
 	result, err := s.core.argocd.Sync(ctx, clusterID, req)
 	return result, describe(err)
 }
@@ -55,6 +58,9 @@ func (s *ArgoCDService) SyncArgoApplications(ctx context.Context, clusterID stri
 // RefreshArgoApplications asks Argo CD to compare each Application against Git
 // again.
 func (s *ArgoCDService) RefreshArgoApplications(ctx context.Context, clusterID string, req domain.ArgoRefreshRequest) (domain.ArgoActionResult, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapArgoRefresh); err != nil {
+		return domain.ArgoActionResult{}, describe(err)
+	}
 	result, err := s.core.argocd.Refresh(ctx, clusterID, req)
 	return result, describe(err)
 }
@@ -62,6 +68,9 @@ func (s *ArgoCDService) RefreshArgoApplications(ctx context.Context, clusterID s
 // OpenArgoUI returns a loopback URL that reaches the Argo CD web UI, starting
 // or reusing a port forward to the server Service.
 func (s *ArgoCDService) OpenArgoUI(ctx context.Context, clusterID string) (domain.ArgoEndpoint, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapArgoOpenUI); err != nil {
+		return domain.ArgoEndpoint{}, describe(err)
+	}
 	endpoint, err := s.core.argocd.OpenUI(ctx, clusterID)
 	return endpoint, describe(err)
 }

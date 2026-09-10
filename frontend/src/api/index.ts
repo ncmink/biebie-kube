@@ -69,6 +69,9 @@ export const api = {
   resourceCatalogue: list(ClusterService.ResourceCatalogue),
   discoverySnapshot: ClusterService.DiscoverySnapshot,
   refreshResourceCatalogue: ClusterService.RefreshResourceCatalogue,
+  operationPolicy: ClusterService.OperationPolicy,
+  setClusterAccessMode: ClusterService.SetClusterAccessMode,
+  setSessionReadOnly: ClusterService.SetSessionReadOnly,
 
   listResources: ResourceService.ListResources,
   countResources: list(ResourceService.CountResources),
@@ -163,6 +166,7 @@ export const api = {
 export const events = {
   session: 'cluster:session',
   catalogue: 'cluster:catalogue',
+  policy: 'cluster:policy',
   resources: 'cluster:resources',
   rows: 'cluster:rows',
   logChunk: 'logs:chunk',

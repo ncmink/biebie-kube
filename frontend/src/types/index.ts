@@ -12,6 +12,7 @@
  */
 
 export {
+  AccessMode,
   ArgoActivityKind,
   AuthoringMode,
   Category,
@@ -103,6 +104,7 @@ export type {
   ManifestResource,
   ManifestSearch,
   MutationGate,
+  OperationPolicy,
   OwnershipProbe,
   StateComparison,
   StateDifference,
@@ -140,10 +142,6 @@ export type {
 
 export type { AccessState, ClusterView, HandoffResult } from '@bindings/biebie-kube/models'
 
-// AccessState is the name of two different things: the enum of connection
-// states in the protocol, and the installed-plus-status pair this application
-// shows on a cluster card. The protocol one is re-exported under a clearer
-// name rather than shadowed.
 export { AccessState as AccessConnectionState } from '@bindings/github.com/ncmink/biebie-protocol/context/models'
 export { Environment as EnvironmentKind } from '@bindings/github.com/ncmink/biebie-protocol/context/models'
 

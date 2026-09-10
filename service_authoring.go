@@ -109,6 +109,9 @@ func (s *AuthoringService) Synthesize(
 	if s.core.authoring == nil {
 		return domain.ManifestPreview{}, describe(errNoAuthoring)
 	}
+	if err := s.core.requireWrite(clusterID, domain.CapAuthoringSynth); err != nil {
+		return domain.ManifestPreview{}, describe(err)
+	}
 
 	manifest, output, err := s.core.authoring.Synthesize(ctx, sessionID, source)
 	if err != nil {
@@ -140,6 +143,9 @@ func (s *AuthoringService) Validate(ctx context.Context, clusterID, namespace, m
 func (s *AuthoringService) CreateResources(ctx context.Context, clusterID, namespace, manifest string) (domain.CreateOutcome, error) {
 	if s.core.authoring == nil {
 		return domain.CreateOutcome{}, describe(errNoAuthoring)
+	}
+	if err := s.core.requireWrite(clusterID, domain.CapAuthoringCreate); err != nil {
+		return domain.CreateOutcome{}, describe(err)
 	}
 	outcome, err := s.core.authoring.Create(ctx, clusterID, namespace, manifest)
 	return outcome, describe(err)

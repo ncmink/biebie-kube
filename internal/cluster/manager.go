@@ -119,6 +119,9 @@ type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*session
 
+	// sessionReadOnly remembers per-cluster session toggles until disconnect.
+	sessionReadOnly map[string]bool
+
 	// connecting guards against two connect attempts racing for one cluster,
 	// which double-clicking Connect would otherwise cause.
 	connecting map[string]struct{}
@@ -202,6 +205,37 @@ func (m *Manager) sessionView(clusterID string) domain.Session {
 		Gateway:       s.gateway,
 		Error:         s.lastError,
 	}
+}
+
+// SessionEpoch reports the opaque token for one cluster's live session.
+func (m *Manager) SessionEpoch(clusterID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if s, ok := m.sessions[clusterID]; ok {
+		return s.sessionEpoch
+	}
+	return ""
+}
+
+// SessionReadOnly reports whether this session is temporarily read-only.
+func (m *Manager) SessionReadOnly(clusterID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessionReadOnly[clusterID]
+}
+
+// SetSessionReadOnly toggles the session-only restriction.
+func (m *Manager) SetSessionReadOnly(clusterID string, readOnly bool) {
+	m.mu.Lock()
+	if m.sessionReadOnly == nil {
+		m.sessionReadOnly = make(map[string]bool)
+	}
+	if readOnly {
+		m.sessionReadOnly[clusterID] = true
+	} else {
+		delete(m.sessionReadOnly, clusterID)
+	}
+	m.mu.Unlock()
 }
 
 // Client returns the clients for a connected cluster.
@@ -653,6 +687,9 @@ func (m *Manager) Disconnect(clusterID string) domain.Session {
 		}
 		delete(m.sessions, clusterID)
 	}
+	if m.sessionReadOnly != nil {
+		delete(m.sessionReadOnly, clusterID)
+	}
 	m.mu.Unlock()
 
 	view := domain.Session{ClusterID: clusterID, State: domain.ClusterDisconnected}
@@ -673,6 +710,7 @@ func (m *Manager) CloseAll() {
 		}
 		delete(m.sessions, id)
 	}
+	m.sessionReadOnly = nil
 }
 
 // SetNamespace changes the namespace a session is showing and remembers it.

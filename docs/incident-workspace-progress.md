@@ -7,8 +7,8 @@
 | Work package | สถานะ | หมายเหตุ |
 |---|---|---|
 | IW-00 Baseline/fixtures | ✅ เสร็จ | `internal/testfixture/` + baseline tests |
-| IW-01 CRD discovery fallback | 🚧 รอ release gate | implementation + tests ผ่าน locally |
-| IW-02 Read-only policy | ⏸ รอ IW-01 release | |
+| IW-01 CRD discovery fallback | ✅ เสร็จ | released `v0.2.11` (`60c7c03`) |
+| IW-02 Read-only policy | 🚧 รอ release gate | implementation + tests ผ่าน locally |
 
 ## IW-01 — CRD discovery fallback
 
@@ -24,40 +24,58 @@
 | CRD-06 | ✅ | `ListAccess` forbidden/snapshot/live ใน `resources/service.go` |
 | CRD-07 | ✅ | `RefreshResourceCatalogue` + UI Refresh ใน sidebar |
 
-### ผลทดสอบ (local, 2026-09-09)
-
-```text
-go test -race ./internal/kube ./internal/cluster ./internal/resources ./internal/testfixture  → PASS
-go build -tags production .                                                                    → PASS
-npm --prefix frontend run build                                                                → PASS
-```
-
-ข้อจำกัด:
-
-- ยังไม่ได้ทดสอบบน disposable cluster จริง (RBAC จำกัด namespace)
-- Release CI (macOS codesign/notarize + Windows NSIS) ยังไม่รันในรอบนี้
-
-### Commit / PR
+### Published
 
 | รายการ | ค่า |
 |---|---|
-| Branch | `feat/iw-01-discovery-fallback` |
-| Commit | `533e3fb9c90766baceca18669a1b7b704c5579dc` |
-| PR | ⏸ push ถูก deny (`napisoot-ttss` → `ncmink/biebie-kube`); ต้อง push/เปิด PR ด้วย account ที่มีสิทธิ์ |
-| Version | 0.2.11 |
+| Tag | `v0.2.11` |
+| Merge | `60c7c03` |
 
-### Published artifacts & smoke test
+## IW-02 — Read-only policy
 
-| รายการ | สถานะ |
+### Requirement IDs
+
+| ID | สถานะ | หลักฐาน |
+|---|---|---|
+| POL-01 | ✅ | `PreferenceRecord.accessMode`; missing field → `read_write` |
+| POL-02 | ✅ | production cluster create → default `read_only` (`repository.go`) |
+| POL-03 | ✅ | effective = persisted OR session; session ไม่ override persisted |
+| POL-04 | ✅ | session override ล้างเมื่อ `Disconnect` |
+| POL-05 | ✅ | read paths ไม่ถูก gate |
+| POL-06 | ✅ | `requireWrite` ก่อน apply/delete/action/argo/exec/PF/create |
+| POL-07 | ✅ | stop/close อนุญาต; synthesize ถูกบล็อกใน read-only |
+| POL-08 | ✅ | ไม่แตะ Access-owned forwards |
+| POL-09 | ✅ | `internal/policy.Service.Check` กลาง |
+| POL-10 | ✅ | revision bump ต่อ policy change |
+| POL-11 | ✅ | `onReadOnly` → `StopCluster` + `CloseCluster` terminals |
+| POL-12 | ✅ | production/GitOps guards เดิมยังอยู่ |
+| POL-13 | ✅ | unknown capability → `unsupported_capability` |
+
+### UI
+
+| รายการ | ไฟล์ |
 |---|---|
-| GitHub Release | ⏸ รอ tag `v0.2.11` + CI |
-| macOS `.dmg` / updater zip | ⏸ |
-| Windows installer / updater zip | ⏸ |
-| Smoke test บน artifact ที่เผยแพร่ | ⏸ |
+| Default access mode ใน cluster settings | `ClusterDialog.vue` |
+| Session toggle + banner | `AccessModeBar.vue` |
+| Tab badge `RO` | `ClusterTabs.vue` |
+| Action dialog context | `ResourceActionDialog.vue` |
+
+### ผลทดสอบ (local, 2026-09-09)
+
+```text
+go test -race ./internal/policy ./internal/cluster/...  → PASS
+go build -tags production .                             → PASS
+wails3 generate bindings -clean=true -ts -i             → PASS
+npm --prefix frontend run build                         → PASS
+```
+
+### Version
+
+`0.2.12`
 
 ## ฟีเจอร์ถัดไป (หลัง release gate ผ่าน)
 
-**IW-02 Read-only policy** (`POL-*`)
+**IW-03 Explain Why** (`EXP-*`)
 
 ## Baseline (IW-00)
 

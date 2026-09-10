@@ -17,6 +17,7 @@ const props = defineProps<{
   row: ResourceRow
   action: ActionDescriptor
   cluster?: Cluster
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -48,7 +49,10 @@ const counted = computed(
 )
 
 const ready = computed(
-  () => counted.value && (!confirmName.value || typed.value.trim() === confirmName.value),
+  () =>
+    !props.readOnly &&
+    counted.value &&
+    (!confirmName.value || typed.value.trim() === confirmName.value),
 )
 
 watch(
@@ -89,6 +93,11 @@ async function run() {
         {{ action.verb }} {{ heading }} “{{ row.name }}”?
       </h2>
       <p class="mt-2 text-sm leading-relaxed text-ink-muted">{{ action.detail }}</p>
+
+      <p v-if="readOnly" class="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+        This cluster is read-only. Change the cluster access mode in settings, or allow writes for
+        this session from the banner above, before running this action.
+      </p>
 
       <div v-if="cluster" class="mt-4 rounded-xl border border-line bg-surface-3 px-3 py-2.5">
         <p class="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">

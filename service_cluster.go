@@ -232,6 +232,23 @@ func (s *ClusterService) RefreshResourceCatalogue(ctx context.Context, clusterID
 	return snapshot, describe(err)
 }
 
+// OperationPolicy reports the effective access mode for one cluster.
+func (s *ClusterService) OperationPolicy(clusterID string) domain.OperationPolicy {
+	return s.core.policy.Snapshot(clusterID)
+}
+
+// SetClusterAccessMode stores the cluster default access mode.
+func (s *ClusterService) SetClusterAccessMode(clusterID string, mode domain.AccessMode) (domain.OperationPolicy, error) {
+	policy, err := s.core.policy.SetPersistedMode(clusterID, mode)
+	return policy, describe(err)
+}
+
+// SetSessionReadOnly toggles the session-only restriction.
+func (s *ClusterService) SetSessionReadOnly(clusterID string, readOnly bool) (domain.OperationPolicy, error) {
+	policy, err := s.core.policy.SetSessionReadOnly(clusterID, readOnly)
+	return policy, describe(err)
+}
+
 func (s *ClusterService) serverFor(input domain.ClusterInput) (string, error) {
 	path, err := s.core.configs.PathFor(strings.TrimSpace(input.KubeconfigRef))
 	if err != nil {

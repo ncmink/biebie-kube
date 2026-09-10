@@ -111,6 +111,9 @@ func (s *ResourceService) ApplyResourceYAML(
 	edited string,
 	resourceVersion string,
 ) (domain.ApplyResult, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapResourceApply); err != nil {
+		return domain.ApplyResult{}, describe(err)
+	}
 	result, err := s.core.manifests.Apply(ctx, clusterID, ref, edited, resourceVersion)
 	return result, describe(err)
 }
@@ -121,6 +124,9 @@ func (s *ResourceService) ApplyResourceYAML(
 // cluster, because the dangerous mistake is not deleting the wrong object — it
 // is deleting the right object in the wrong customer's cluster.
 func (s *ResourceService) DeleteResource(ctx context.Context, clusterID string, ref domain.ResourceRef) error {
+	if err := s.core.requireWrite(clusterID, domain.CapResourceDelete); err != nil {
+		return describe(err)
+	}
 	return describe(s.core.resources.Delete(ctx, clusterID, ref))
 }
 
@@ -144,6 +150,9 @@ func (s *ResourceService) PerformResourceAction(
 	clusterID string,
 	request domain.ActionRequest,
 ) (domain.ActionResult, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapResourceAction); err != nil {
+		return domain.ActionResult{}, describe(err)
+	}
 	result, err := s.core.resources.Perform(ctx, clusterID, request)
 	return result, describe(err)
 }

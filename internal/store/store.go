@@ -103,6 +103,9 @@ type ClusterRecord struct {
 type PreferenceRecord struct {
 	ClusterID     string `json:"clusterId"`
 	LastNamespace string `json:"lastNamespace"`
+
+	// AccessMode is read_write unless explicitly set to read_only.
+	AccessMode string `json:"accessMode,omitempty"`
 }
 
 // CustomerRecord records that one section of the cluster list does not have its

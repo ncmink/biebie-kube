@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { api, message } from '@/api'
 import { kindOf, titleFor } from '@/composables/environment'
 import { useUIStore } from '@/stores/ui'
-import { EnvironmentKind } from '@/types'
+import { EnvironmentKind, AccessMode } from '@/types'
 import type { AccessProfile, Cluster, KubeconfigFile } from '@/types'
 
 /**
@@ -30,6 +30,7 @@ const environmentName = ref('')
 const environmentKind = ref<EnvironmentKind>(EnvironmentKind.EnvironmentUnknown)
 const requiresAccess = ref(false)
 const accessProfileId = ref('')
+const accessMode = ref<AccessMode>(AccessMode.AccessModeReadWrite)
 const importPath = ref('')
 const saving = ref(false)
 const error = ref('')
@@ -109,7 +110,33 @@ function fill() {
   environmentKind.value = (cluster?.environmentKind as EnvironmentKind) ?? EnvironmentKind.EnvironmentUnknown
   requiresAccess.value = cluster?.access.required ?? false
   accessProfileId.value = cluster?.access.profileId ?? ''
+  if (cluster) {
+    void loadAccessMode(cluster.id)
+  } else {
+    accessMode.value =
+      environmentKind.value === EnvironmentKind.EnvironmentProduction
+        ? AccessMode.AccessModeReadOnly
+        : AccessMode.AccessModeReadWrite
+  }
 }
+
+async function loadAccessMode(clusterId: string) {
+  try {
+    const policy = await api.operationPolicy(clusterId)
+    accessMode.value = policy.persistedMode
+  } catch {
+    accessMode.value = AccessMode.AccessModeReadWrite
+  }
+}
+
+watch(environmentKind, (kind) => {
+  if (editing.value) return
+  if (kind === EnvironmentKind.EnvironmentProduction) {
+    accessMode.value = AccessMode.AccessModeReadOnly
+  } else if (accessMode.value === AccessMode.AccessModeReadOnly) {
+    accessMode.value = AccessMode.AccessModeReadWrite
+  }
+})
 
 async function refresh() {
   try {
@@ -161,13 +188,17 @@ async function save() {
   }
   try {
     const target = props.cluster
+    let clusterId = target?.id ?? ''
     if (target) {
       await api.updateCluster(target.id, input)
+      clusterId = target.id
       ui.say(`Saved ${input.name}.`)
     } else {
-      await api.createCluster(input)
+      const view = await api.createCluster(input)
+      clusterId = view.cluster.id
       ui.say(`Added ${input.name}.`)
     }
+    await api.setClusterAccessMode(clusterId, accessMode.value)
     emit('saved')
     emit('close')
   } catch (err) {
@@ -300,6 +331,34 @@ async function save() {
                 </svg>
               </span>
             </div>
+          </label>
+          <label class="block sm:col-span-2">
+            <span class="text-xs text-ink-muted">Default access mode</span>
+            <div class="relative mt-1">
+              <select
+                v-model="accessMode"
+                class="h-10 w-full appearance-none rounded-lg border border-line bg-surface-1 px-3 pr-10 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option :value="AccessMode.AccessModeReadWrite">Read-write</option>
+                <option :value="AccessMode.AccessModeReadOnly">Read-only</option>
+              </select>
+              <span
+                class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-ink-faint"
+                aria-hidden="true"
+              >
+                <svg class="size-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </span>
+            </div>
+            <span class="mt-1 block text-xs text-ink-faint">
+              Production clusters default to read-only. You can still make one session read-only
+              without changing this setting.
+            </span>
           </label>
           <label class="block">
             <span class="text-xs text-ink-muted">Customer id</span>

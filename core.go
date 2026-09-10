@@ -23,12 +23,14 @@ import (
 	"biebie-kube/internal/authoring"
 	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/cluster"
+	"biebie-kube/internal/domain"
 	"biebie-kube/internal/git"
 	"biebie-kube/internal/gitops"
 	"biebie-kube/internal/kube"
 	"biebie-kube/internal/kubeconfig"
 	"biebie-kube/internal/logs"
 	"biebie-kube/internal/manifest"
+	"biebie-kube/internal/policy"
 	"biebie-kube/internal/portforward"
 	"biebie-kube/internal/resources"
 	"biebie-kube/internal/reveal"
@@ -39,7 +41,7 @@ import (
 // appVersion is shown in Settings, sent as the Kubernetes user agent, and
 // compared with GitHub Releases. Release builds stamp it with
 // -X main.appVersion=…; a var is required so -X can replace it.
-var appVersion = "0.2.10"
+var appVersion = "0.2.12"
 
 // Events published to the frontend by the application layer itself. The
 // per-domain events are declared by the packages that emit them.
@@ -79,6 +81,7 @@ type Core struct {
 	argocd    *argocd.Service
 	gitops    *gitops.Service
 	authoring *authoring.Service
+	policy    *policy.Service
 
 	// reveal shows a file in the platform's file manager. It is here rather
 	// than inside a service because diagnosing a repository ends at a file in
@@ -131,6 +134,16 @@ func NewCore() (*Core, error) {
 	core.logs = logs.NewService(core.clusters, events)
 	core.terminals = terminal.NewService(core.clusters, events)
 	core.forwards = portforward.NewService(core.clusters, events)
+
+	core.policy = policy.NewService(
+		clusters,
+		core.clusters,
+		func(clusterID string) {
+			core.forwards.StopCluster(clusterID)
+			core.terminals.CloseCluster(clusterID)
+		},
+		func(p domain.OperationPolicy) { emit(policy.EventPolicyChanged, p) },
+	)
 
 	// Opening the Argo CD UI is a port forward like any other, so the Argo CD
 	// service borrows the one that already owns them rather than dialling a

@@ -2,6 +2,7 @@
 import { computed, onMounted, watch } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 
+import AccessModeBar from '@/components/cluster/AccessModeBar.vue'
 import ClusterTabs from '@/components/cluster/ClusterTabs.vue'
 import ConnectionDiagnosis from '@/components/cluster/ConnectionDiagnosis.vue'
 import NamespaceSelector from '@/components/cluster/NamespaceSelector.vue'
@@ -52,6 +53,7 @@ async function connectAccess() {
 <template>
   <div class="flex h-full min-h-0 flex-col">
     <ClusterTabs />
+    <AccessModeBar v-if="connected" :cluster-id="clusterId" />
 
     <div class="flex min-h-0 flex-1">
       <aside class="flex w-64 shrink-0 flex-col border-r border-line bg-surface-1">

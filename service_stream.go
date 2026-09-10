@@ -83,12 +83,21 @@ func (s *TerminalService) ServiceName() string { return "TerminalService" }
 
 // OpenTerminal starts a shell in a container.
 func (s *TerminalService) OpenTerminal(ctx context.Context, clusterID string, req domain.TerminalRequest) (domain.TerminalSession, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapTerminalOpen); err != nil {
+		return domain.TerminalSession{}, describe(err)
+	}
 	session, err := s.core.terminals.Open(ctx, clusterID, req)
 	return session, describe(err)
 }
 
 // SendTerminalInput forwards keystrokes to a container.
 func (s *TerminalService) SendTerminalInput(sessionID, data string) error {
+	clusterID := terminalClusterID(s.core, sessionID)
+	if clusterID != "" {
+		if err := s.core.requireWrite(clusterID, domain.CapTerminalInput); err != nil {
+			return describe(err)
+		}
+	}
 	return describe(s.core.terminals.Write(sessionID, data))
 }
 
@@ -112,6 +121,9 @@ func (s *PortForwardService) ServiceName() string { return "PortForwardService" 
 
 // StartPortForward opens a loopback port that reaches into the cluster.
 func (s *PortForwardService) StartPortForward(ctx context.Context, clusterID string, req domain.PortForwardRequest) (domain.PortForwardSession, error) {
+	if err := s.core.requireWrite(clusterID, domain.CapPortForward); err != nil {
+		return domain.PortForwardSession{}, describe(err)
+	}
 	session, err := s.core.forwards.Start(ctx, clusterID, req)
 	return session, describe(err)
 }
@@ -122,4 +134,13 @@ func (s *PortForwardService) StopPortForward(id string) { s.core.forwards.Stop(i
 // ListPortForwards reports running forwards across every cluster.
 func (s *PortForwardService) ListPortForwards() []domain.PortForwardSession {
 	return s.core.forwards.Sessions()
+}
+
+func terminalClusterID(core *Core, sessionID string) string {
+	for _, session := range core.terminals.Sessions() {
+		if session.ID == sessionID {
+			return session.ClusterID
+		}
+	}
+	return ""
 }

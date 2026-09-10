@@ -121,6 +121,12 @@ func (r *Repository) Create(in domain.ClusterInput, server string) (domain.Clust
 			}
 		}
 		data.Clusters = append(data.Clusters, record)
+		if mode := defaultAccessMode(in); mode != domain.AccessModeReadWrite {
+			data.Preferences = append(data.Preferences, store.PreferenceRecord{
+				ClusterID:  record.ID,
+				AccessMode: string(mode),
+			})
+		}
 		return nil
 	}); err != nil {
 		return domain.Cluster{}, err
@@ -440,6 +446,71 @@ func (r *Repository) RememberNamespace(clusterID, namespace string) error {
 		})
 		return nil
 	})
+}
+
+// AccessMode returns the persisted default access mode for one cluster.
+//
+// Records without an explicit mode keep the previous behaviour and report
+// read-write.
+func (r *Repository) AccessMode(clusterID string) domain.AccessMode {
+	for _, pref := range r.store.Read().Preferences {
+		if pref.ClusterID != clusterID {
+			continue
+		}
+		switch pref.AccessMode {
+		case string(domain.AccessModeReadOnly):
+			return domain.AccessModeReadOnly
+		case string(domain.AccessModeReadWrite):
+			return domain.AccessModeReadWrite
+		}
+	}
+	return domain.AccessModeReadWrite
+}
+
+// SetAccessMode stores the cluster default access mode.
+func (r *Repository) SetAccessMode(clusterID string, mode domain.AccessMode) error {
+	if mode != domain.AccessModeReadWrite && mode != domain.AccessModeReadOnly {
+		return fmt.Errorf("unknown access mode %q", mode)
+	}
+	return r.store.Update(func(data *store.Data) error {
+		found := false
+		for _, record := range data.Clusters {
+			if record.ID == clusterID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("cluster %s does not exist", clusterID)
+		}
+
+		for i, pref := range data.Preferences {
+			if pref.ClusterID != clusterID {
+				continue
+			}
+			if mode == domain.AccessModeReadWrite {
+				data.Preferences[i].AccessMode = ""
+			} else {
+				data.Preferences[i].AccessMode = string(mode)
+			}
+			return nil
+		}
+		if mode == domain.AccessModeReadWrite {
+			return nil
+		}
+		data.Preferences = append(data.Preferences, store.PreferenceRecord{
+			ClusterID:  clusterID,
+			AccessMode: string(mode),
+		})
+		return nil
+	})
+}
+
+func defaultAccessMode(in domain.ClusterInput) domain.AccessMode {
+	if in.EnvironmentKind.IsProduction() {
+		return domain.AccessModeReadOnly
+	}
+	return domain.AccessModeReadWrite
 }
 
 func labelMatch(cluster domain.Cluster, key, value string) bool {

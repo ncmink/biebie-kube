@@ -148,7 +148,8 @@ func (s *Service) applyUsage(clusterID string, rows map[string]usageRow) {
 	s.mu.Unlock()
 
 	for key, rendered := range open {
-		touched, reordered := rendered.setUsage(rows)
+		fetched := s.usageFetchedAt(clusterID)
+		touched, reordered := rendered.setUsage(rows, fetched)
 		delta, worth := rendered.patch(touched, reordered)
 		if !worth {
 			continue
@@ -162,6 +163,7 @@ func (s *Service) applyUsage(clusterID string, rows map[string]usageRow) {
 			Order:     delta.Order,
 			Total:     delta.Total,
 			Matched:   delta.Matched,
+			Unknown:   delta.Unknown,
 			Loading:   delta.Loading,
 			Token:     delta.Token,
 		})
@@ -200,4 +202,28 @@ func trimZeros(value string) string {
 		return value
 	}
 	return strings.TrimSuffix(strings.TrimRight(value, "0"), ".")
+}
+
+// usageSnapshot returns cached pod usage and when it was fetched.
+func (s *Service) usageSnapshot(clusterID string) (map[string]usageRow, *time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, ok := s.usage[clusterID]
+	if !ok || state.rows == nil || state.fetched.IsZero() {
+		return nil, nil
+	}
+	fetched := state.fetched
+	return state.rows, &fetched
+}
+
+func (s *Service) usageFetchedAt(clusterID string) *time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, ok := s.usage[clusterID]
+	if !ok || state.fetched.IsZero() {
+		return nil
+	}
+	fetched := state.fetched
+	return &fetched
 }

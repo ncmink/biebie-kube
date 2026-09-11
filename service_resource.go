@@ -25,6 +25,11 @@ func (s *ResourceService) ListResources(ctx context.Context, clusterID, kind str
 	return page, describe(err)
 }
 
+// ParseListQuery validates a table query and returns actionable errors.
+func (s *ResourceService) ParseListQuery(query domain.ListQuery) domain.QueryDiagnostic {
+	return s.core.resources.ParseListQuery(query)
+}
+
 // CountResources reports which kinds have objects in the current namespace,
 // so the sidebar can fade empty entries.
 func (s *ResourceService) CountResources(ctx context.Context, clusterID, namespace string) ([]domain.KindPresence, error) {

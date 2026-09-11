@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
 import type { Column, ListQuery, ResourcePage, ResourceRow, RowsChanged } from '@/types'
+import { QueryMode } from '@/types'
 
 /** The window the table asks for, and grows by as the user scrolls. */
 const pageSize = 500
@@ -42,6 +43,10 @@ export const useResourceStore = defineStore('resources', () => {
   const error = ref('')
 
   const filter = ref('')
+  const queryMode = ref<QueryMode>(QueryMode.QueryModeText)
+  const expression = ref('')
+  const queryError = ref('')
+  const lastValidExpression = ref('')
   // Newest first is the default because an engineer opening a list is almost
   // always looking for what just changed.
   const sortKey = ref(defaultSortKey)
@@ -71,7 +76,9 @@ export const useResourceStore = defineStore('resources', () => {
   function query(namespace: string, offset: number): ListQuery {
     return {
       namespace,
-      filter: filter.value.trim(),
+      mode: queryMode.value,
+      filter: queryMode.value === QueryMode.QueryModeText ? filter.value.trim() : '',
+      expression: queryMode.value === QueryMode.QueryModeExpression ? expression.value.trim() : '',
       sortKey: sortKey.value,
       sortDesc: sortDesc.value,
       offset,
@@ -159,6 +166,10 @@ export const useResourceStore = defineStore('resources', () => {
       // A slow response for a table the user has already navigated away from
       // must not overwrite the one now on screen.
       if (!isCurrent(view)) return
+      queryError.value = ''
+      if (queryMode.value === QueryMode.QueryModeExpression) {
+        lastValidExpression.value = expression.value.trim()
+      }
       accept(page)
     } catch (err) {
       if (isCurrent(view)) error.value = message(err)
@@ -197,8 +208,68 @@ export const useResourceStore = defineStore('resources', () => {
 
   function setFilter(value: string) {
     filter.value = value
+    queryError.value = ''
     clearTimeout(filterTimer)
     filterTimer = setTimeout(refine, filterDelay)
+  }
+
+  function setQueryMode(mode: QueryMode) {
+    if (queryMode.value === mode) return
+    queryMode.value = mode
+    queryError.value = ''
+    if (mode === QueryMode.QueryModeExpression) {
+      void applyExpression()
+      return
+    }
+    refine()
+  }
+
+  function setExpression(value: string) {
+    expression.value = value
+    queryError.value = ''
+    clearTimeout(filterTimer)
+    filterTimer = setTimeout(() => {
+      void applyExpression()
+    }, filterDelay)
+  }
+
+  /**
+   * applyExpression compiles first, then filters. An unfinished field name
+   * such as "re" must not wipe the box or replace the table — the last valid
+   * query stays on screen until the expression parses.
+   */
+  async function applyExpression() {
+    const view = current.value
+    if (!view) return
+
+    const draft = expression.value.trim()
+    if (draft === '') {
+      lastValidExpression.value = ''
+      queryError.value = ''
+      refine()
+      return
+    }
+
+    try {
+      const diagnostic = await api.parseListQuery({
+        namespace: view.namespace,
+        mode: QueryMode.QueryModeExpression,
+        expression: draft,
+        sortKey: sortKey.value,
+        sortDesc: sortDesc.value,
+        offset: 0,
+        limit: pageSize,
+      })
+      if (!diagnostic.valid) {
+        queryError.value = diagnostic.error || 'Invalid expression'
+        return
+      }
+      queryError.value = ''
+      lastValidExpression.value = draft
+      refine()
+    } catch (err) {
+      queryError.value = message(err)
+    }
   }
 
   /**
@@ -229,6 +300,10 @@ export const useResourceStore = defineStore('resources', () => {
     total.value = 0
     matched.value = 0
     filter.value = ''
+    queryMode.value = QueryMode.QueryModeText
+    expression.value = ''
+    lastValidExpression.value = ''
+    queryError.value = ''
     sortKey.value = defaultSortKey
     sortDesc.value = true
     syncing.value = false
@@ -276,6 +351,9 @@ export const useResourceStore = defineStore('resources', () => {
     syncing,
     error,
     filter,
+    queryMode,
+    expression,
+    queryError,
     sortKey,
     sortDesc,
     current,
@@ -283,6 +361,8 @@ export const useResourceStore = defineStore('resources', () => {
     load,
     more,
     setFilter,
+    setQueryMode,
+    setExpression,
     sortBy,
     reset,
     subscribe,

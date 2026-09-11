@@ -16,6 +16,7 @@ import (
 	"biebie-kube/internal/cluster"
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
+	resquery "biebie-kube/internal/resources/query"
 )
 
 // coldBudget bounds the first read of a resource type, before its watch has
@@ -58,6 +59,7 @@ type RowsChanged struct {
 
 	Total   int  `json:"total"`
 	Matched int  `json:"matched"`
+	Unknown int  `json:"unknown,omitempty"`
 	Loading bool `json:"loading"`
 
 	// Token is the query this patch was computed against, so a table that has
@@ -92,6 +94,12 @@ func NewService(clusters *cluster.Manager, emitter Emitter) *Service {
 	}
 }
 
+// ParseListQuery validates a table query before the UI applies it.
+func (s *Service) ParseListQuery(query domain.ListQuery) domain.QueryDiagnostic {
+	_, diag := resquery.Compile(query)
+	return diag
+}
+
 // List answers one table query.
 //
 // The filter, the order and the window are all applied here, where the whole
@@ -103,6 +111,9 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 	info, ok := s.clusters.LookupKind(clusterID, kind)
 	if !ok {
 		return domain.ResourcePage{}, fmt.Errorf("unknown resource type %q", kind)
+	}
+	if _, diag := resquery.Compile(query); !diag.Valid {
+		return domain.ResourcePage{}, fmt.Errorf("invalid query: %s", diag.Error)
 	}
 	if !info.Namespaced {
 		query.Namespace = domain.AllNamespaces
@@ -134,9 +145,9 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 
 	rendered := s.ensureTable(key, info)
 	if kind == domain.KindPod {
-		// Nothing to patch: the rows are about to be rendered again anyway,
-		// and the page that follows carries the usage with them.
-		rendered.setUsage(s.usageFor(ctx, clusterID, true))
+		s.usageFor(ctx, clusterID, true)
+		usage, fetched := s.usageSnapshot(clusterID)
+		rendered.setUsage(usage, fetched)
 	}
 	rendered.replace(objects, outcome.loading, outcome.access, outcome.observedAt)
 	return rendered.page(query), nil
@@ -196,6 +207,7 @@ func (s *Service) OnResourceChange(clusterID string, change kube.Change) {
 			Order:     delta.Order,
 			Total:     delta.Total,
 			Matched:   delta.Matched,
+			Unknown:   delta.Unknown,
 			Loading:   delta.Loading,
 			Token:     delta.Token,
 		})

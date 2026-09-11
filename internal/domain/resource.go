@@ -197,6 +197,16 @@ const (
 	SortKeyStatus    = "status"
 )
 
+// QueryMode selects how a table filter is interpreted.
+type QueryMode string
+
+const (
+	// QueryModeText matches a case-insensitive name substring.
+	QueryModeText QueryMode = "text"
+	// QueryModeExpression evaluates a typed filter expression.
+	QueryModeExpression QueryMode = "expression"
+)
+
 // ListQuery is what a table asks for: which slice of which order.
 //
 // Filtering, sorting and windowing all happen where the whole truth is, which
@@ -206,8 +216,18 @@ const (
 type ListQuery struct {
 	Namespace string `json:"namespace"`
 
-	// Filter matches a name fragment, case-insensitively.
+	// Mode selects text or expression filtering. Empty means text.
+	Mode QueryMode `json:"mode,omitempty"`
+
+	// Filter matches a name fragment, case-insensitively, in text mode.
 	Filter string `json:"filter,omitempty"`
+
+	// Expression is a typed filter in expression mode.
+	Expression string `json:"expression,omitempty"`
+
+	// LabelSelector and FieldSelector narrow server scope when applied.
+	LabelSelector string `json:"labelSelector,omitempty"`
+	FieldSelector string `json:"fieldSelector,omitempty"`
 
 	// SortKey is empty for the default order, which is newest first: an
 	// engineer opening a list is almost always looking for what just changed.
@@ -222,6 +242,13 @@ type ListQuery struct {
 	// its query produced, so one still in flight when the filter changes would
 	// otherwise be applied to a table it does not describe.
 	Token string `json:"token,omitempty"`
+}
+
+// QueryDiagnostic reports whether a query compiled.
+type QueryDiagnostic struct {
+	Valid    bool   `json:"valid"`
+	Error    string `json:"error,omitempty"`
+	Position int    `json:"position,omitempty"`
 }
 
 // Window bounds for one table request. The frontend renders a window of rows
@@ -267,6 +294,14 @@ type ResourcePage struct {
 	Total   int `json:"total"`
 	Matched int `json:"matched"`
 	Offset  int `json:"offset"`
+
+	// Loaded is how many rows the cache holds for this scope. While Loading is
+	// true it may be below the server total.
+	Loaded int `json:"loaded,omitempty"`
+
+	// Unknown is how many rows were excluded because a typed predicate saw an
+	// unknown value rather than a definite false.
+	Unknown int `json:"unknown,omitempty"`
 
 	// Loading marks a page served from a first API request while the watch is
 	// still filling its cache. The counts are a floor, not the truth, and the

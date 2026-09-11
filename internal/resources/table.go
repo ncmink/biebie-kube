@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"biebie-kube/internal/domain"
+	resquery "biebie-kube/internal/resources/query"
 )
 
 // view identifies one table the UI has open: a kind of a cluster, seen through
@@ -59,6 +60,14 @@ type table struct {
 
 	// scratch backs the filter-and-sort pass, reused between calls.
 	scratch []domain.ResourceRow
+
+	// program is compiled once per query change.
+	program resquery.Program
+
+	// metricsFetched records when pod usage was last read for typed filters.
+	metricsFetched *time.Time
+
+	unknown int
 }
 
 func newTable(info domain.KindInfo) *table {
@@ -146,11 +155,12 @@ func sameRow(left, right domain.ResourceRow) bool {
 
 // setUsage records fresh usage and folds it into the rows already rendered,
 // returning the keys whose cells changed and whether the order still stands.
-func (t *table) setUsage(usage map[string]usageRow) ([]string, bool) {
+func (t *table) setUsage(usage map[string]usageRow, fetched *time.Time) ([]string, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.usage = usage
+	t.metricsFetched = fetched
 
 	sorted := t.query.SortKey
 	touched := make([]string, 0, len(t.rows))
@@ -229,7 +239,15 @@ func (t *table) page(query domain.ListQuery) domain.ResourcePage {
 
 	t.query = query
 
-	ordered := t.orderedLocked(query)
+	program, diag := resquery.Compile(query)
+	if !diag.Valid {
+		// The service validates before page(); keep the last program if this happens.
+		program = t.program
+	} else {
+		t.program = program
+	}
+
+	ordered, unknown := t.orderedLocked(query, program)
 	window := windowOf(ordered, query.Offset, query.Limit)
 
 	// The frontend holds everything up to the end of this window, so the whole
@@ -244,6 +262,7 @@ func (t *table) page(query domain.ListQuery) domain.ResourcePage {
 
 	t.total = len(t.rows)
 	t.matched = len(ordered)
+	t.unknown = unknown
 	t.reported = t.loading
 
 	return domain.ResourcePage{
@@ -253,6 +272,8 @@ func (t *table) page(query domain.ListQuery) domain.ResourcePage {
 		Rows:       window,
 		Total:      t.total,
 		Matched:    t.matched,
+		Loaded:     t.total,
+		Unknown:    t.unknown,
 		Offset:     query.Offset,
 		Loading:    t.loading,
 		Access:     t.access,
@@ -276,6 +297,7 @@ type rowsDelta struct {
 
 	Total   int  `json:"total"`
 	Matched int  `json:"matched"`
+	Unknown int  `json:"unknown,omitempty"`
 	Loading bool `json:"loading"`
 
 	// Token is the query this window was built from.
@@ -296,7 +318,7 @@ func (t *table) patch(touched []string, reordered bool) (rowsDelta, bool) {
 		return t.inPlaceLocked(touched)
 	}
 
-	ordered := t.orderedLocked(t.query)
+	ordered, unknown := t.orderedLocked(t.query, t.program)
 
 	// The frontend holds a prefix of the ordered list, so the window keeps its
 	// size unless there are no longer enough rows to fill it.
@@ -318,6 +340,7 @@ func (t *table) patch(touched []string, reordered bool) (rowsDelta, bool) {
 	delta := rowsDelta{
 		Total:   len(t.rows),
 		Matched: len(ordered),
+		Unknown: unknown,
 		Loading: t.loading,
 		Token:   t.query.Token,
 	}
@@ -343,8 +366,8 @@ func (t *table) patch(touched []string, reordered bool) (rowsDelta, bool) {
 		delta.Order = order
 	}
 
-	changedCounts := delta.Total != t.total || delta.Matched != t.matched || delta.Loading != t.reported
-	t.total, t.matched, t.reported = delta.Total, delta.Matched, delta.Loading
+	changedCounts := delta.Total != t.total || delta.Matched != t.matched || delta.Unknown != t.unknown || delta.Loading != t.reported
+	t.total, t.matched, t.unknown, t.reported = delta.Total, delta.Matched, delta.Unknown, delta.Loading
 	t.sent = order
 
 	// A change to a field no column shows leaves the window identical.
@@ -364,6 +387,7 @@ func (t *table) inPlaceLocked(touched []string) (rowsDelta, bool) {
 	delta := rowsDelta{
 		Total:   len(t.rows),
 		Matched: t.matched,
+		Unknown: t.unknown,
 		Loading: t.loading,
 		Token:   t.query.Token,
 	}
@@ -392,20 +416,23 @@ func (t *table) inPlaceLocked(touched []string) (rowsDelta, bool) {
 // The result borrows the table's scratch space and must not outlive the lock.
 // Allocating a slice the size of the cluster on every keystroke and every
 // reordering change is most of what a large namespace costs.
-func (t *table) orderedLocked(query domain.ListQuery) []domain.ResourceRow {
-	needle := strings.ToLower(strings.TrimSpace(query.Filter))
+func (t *table) orderedLocked(query domain.ListQuery, program resquery.Program) ([]domain.ResourceRow, int) {
+	ctx := resquery.EvalContext{Now: time.Now().UTC(), MetricsFetchedAt: t.metricsFetched}
 
 	rows := t.scratch[:0]
+	unknown := 0
 	for _, row := range t.rows {
-		if needle != "" && !strings.Contains(strings.ToLower(row.Name), needle) {
-			continue
+		switch program.Match(row, ctx) {
+		case resquery.MatchTrue:
+			rows = append(rows, row)
+		case resquery.MatchUnknown:
+			unknown++
 		}
-		rows = append(rows, row)
 	}
 	t.scratch = rows
 
 	sortRows(rows, query.Normalise())
-	return rows
+	return rows, unknown
 }
 
 // sortRows orders a filtered set.

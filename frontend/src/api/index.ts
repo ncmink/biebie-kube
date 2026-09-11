@@ -74,6 +74,7 @@ export const api = {
   setSessionReadOnly: ClusterService.SetSessionReadOnly,
 
   listResources: ResourceService.ListResources,
+  parseListQuery: ResourceService.ParseListQuery,
   countResources: list(ResourceService.CountResources),
   inspectResource: ResourceService.InspectResource,
   relatedResources: list(ResourceService.ListRelatedResources),

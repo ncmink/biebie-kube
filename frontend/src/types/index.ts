@@ -45,6 +45,7 @@ export {
   OwnershipStatus,
   OwnershipUncertainty,
   PortForwardState,
+  QueryMode,
   ProbeResult,
   ResourceAction,
 } from '@bindings/biebie-kube/internal/domain/models'
@@ -118,6 +119,7 @@ export type {
   PortForwardRequest,
   PortForwardSession,
   Probe,
+  QueryDiagnostic,
   InspectProperty,
   RelatedGroup,
   ResourceOwnership,

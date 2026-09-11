@@ -47,6 +47,19 @@ func podTable(t *testing.T, count int) *table {
 // TestFilterFindsAnObjectPastTheFirstWindow is the failure this whole path
 // exists to remove: a filter that ran on the rows already sent reported a pod
 // that exists as missing, because it had never been sent.
+func TestExpressionFilterFindsHighRestarts(t *testing.T) {
+	rendered := podTable(t, 3000)
+
+	page := rendered.page(domain.ListQuery{
+		Mode:       domain.QueryModeExpression,
+		Expression: `restarts >= 2999`,
+	})
+
+	if page.Matched != 1 {
+		t.Fatalf("matched = %d, want the pod with the highest restart count", page.Matched)
+	}
+}
+
 func TestFilterFindsAnObjectPastTheFirstWindow(t *testing.T) {
 	rendered := podTable(t, 3000)
 
@@ -123,7 +136,7 @@ func TestRowsWithoutTheSortedValueSinkToTheBottom(t *testing.T) {
 	// A pod metrics-server has not answered for has no CPU cell at all.
 	rendered.setUsage(map[string]usageRow{
 		"shop/api-00001": {cpu: "120m", memory: "64Mi"},
-	})
+	}, nil)
 
 	for _, desc := range []bool{false, true} {
 		page := rendered.page(domain.ListQuery{SortKey: "cpu", SortDesc: desc})
@@ -138,7 +151,7 @@ func TestUsageFillsThePodColumnsMetricsServerAnswersFor(t *testing.T) {
 
 	touched, _ := rendered.setUsage(map[string]usageRow{
 		"shop/api-00000": {cpu: "1.5", memory: "2.1Gi"},
-	})
+	}, nil)
 
 	if len(touched) != 1 || touched[0] != "shop/api-00000" {
 		t.Fatalf("touched = %v, want only the pod with usage", touched)

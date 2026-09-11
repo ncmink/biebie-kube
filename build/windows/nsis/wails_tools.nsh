@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "Biebie Kube"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.2.14"
+    !define INFO_PRODUCTVERSION "0.2.15"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026, Biebie"

@@ -54,7 +54,7 @@ func (s *Service) countKind(
 	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
 
 	if hub, err := s.clusters.Hub(clusterID); err == nil {
-		if watch := hub.Existing(gvr, namespace); watch != nil {
+		if watch := hub.Existing(gvr, namespace, "", ""); watch != nil {
 			cached, err := watch.List(namespace)
 			if err == nil {
 				return len(cached), nil

@@ -47,6 +47,11 @@ export const useResourceStore = defineStore('resources', () => {
   const expression = ref('')
   const queryError = ref('')
   const lastValidExpression = ref('')
+  const draftLabelSelector = ref('')
+  const draftFieldSelector = ref('')
+  const labelSelector = ref('')
+  const fieldSelector = ref('')
+  const selectorError = ref('')
   // Newest first is the default because an engineer opening a list is almost
   // always looking for what just changed.
   const sortKey = ref(defaultSortKey)
@@ -79,6 +84,8 @@ export const useResourceStore = defineStore('resources', () => {
       mode: queryMode.value,
       filter: queryMode.value === QueryMode.QueryModeText ? filter.value.trim() : '',
       expression: queryMode.value === QueryMode.QueryModeExpression ? expression.value.trim() : '',
+      labelSelector: labelSelector.value.trim(),
+      fieldSelector: fieldSelector.value.trim(),
       sortKey: sortKey.value,
       sortDesc: sortDesc.value,
       offset,
@@ -165,14 +172,16 @@ export const useResourceStore = defineStore('resources', () => {
       const page = await api.listResources(clusterId, kind, query(namespace, 0))
       // A slow response for a table the user has already navigated away from
       // must not overwrite the one now on screen.
-      if (!isCurrent(view)) return
+      if (!isCurrent(view)) return false
       queryError.value = ''
       if (queryMode.value === QueryMode.QueryModeExpression) {
         lastValidExpression.value = expression.value.trim()
       }
       accept(page)
+      return true
     } catch (err) {
       if (isCurrent(view)) error.value = message(err)
+      return false
     } finally {
       loading.value = false
     }
@@ -196,6 +205,46 @@ export const useResourceStore = defineStore('resources', () => {
       if (isCurrent(view)) error.value = message(err)
     } finally {
       appending.value = false
+    }
+  }
+
+  async function applySelectors() {
+    const view = current.value
+    if (!view) return false
+
+    const draft = query(view.namespace, 0)
+    draft.labelSelector = draftLabelSelector.value.trim()
+    draft.fieldSelector = draftFieldSelector.value.trim()
+
+    try {
+      const diagnostic = await api.parseListQuery(draft)
+      if (!diagnostic.valid) {
+        selectorError.value = diagnostic.error || 'Invalid selector'
+        return false
+      }
+
+      // Applying a server selector is transactional from the table's point of
+      // view. Kubernetes validates field-selector support only when it receives
+      // the list request, so the chips must not claim a filter is active until
+      // that request has actually succeeded.
+      const previousLabel = labelSelector.value
+      const previousField = fieldSelector.value
+      selectorError.value = ''
+      labelSelector.value = draft.labelSelector ?? ''
+      fieldSelector.value = draft.fieldSelector ?? ''
+      const applied = await load(view.clusterId, view.kind, view.namespace, true)
+      if (applied) return true
+
+      const applyError = error.value
+      labelSelector.value = previousLabel
+      fieldSelector.value = previousField
+      error.value = ''
+      await load(view.clusterId, view.kind, view.namespace, true)
+      selectorError.value = applyError || 'These filters could not be applied.'
+      return false
+    } catch (err) {
+      selectorError.value = message(err)
+      return false
     }
   }
 
@@ -303,6 +352,11 @@ export const useResourceStore = defineStore('resources', () => {
     queryMode.value = QueryMode.QueryModeText
     expression.value = ''
     lastValidExpression.value = ''
+    draftLabelSelector.value = ''
+    draftFieldSelector.value = ''
+    labelSelector.value = ''
+    fieldSelector.value = ''
+    selectorError.value = ''
     queryError.value = ''
     sortKey.value = defaultSortKey
     sortDesc.value = true
@@ -354,6 +408,11 @@ export const useResourceStore = defineStore('resources', () => {
     queryMode,
     expression,
     queryError,
+    draftLabelSelector,
+    draftFieldSelector,
+    labelSelector,
+    fieldSelector,
+    selectorError,
     sortKey,
     sortDesc,
     current,
@@ -363,6 +422,7 @@ export const useResourceStore = defineStore('resources', () => {
     setFilter,
     setQueryMode,
     setExpression,
+    applySelectors,
     sortBy,
     reset,
     subscribe,

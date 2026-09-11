@@ -6,6 +6,7 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import CreateResourceDialog from '@/components/resource/CreateResourceDialog.vue'
 import ResourceActionDialog from '@/components/resource/ResourceActionDialog.vue'
 import ResourceDrawer from '@/components/resource/ResourceDrawer.vue'
+import ResourceFilterBuilder from '@/components/resource/ResourceFilterBuilder.vue'
 import ResourceTable from '@/components/resource/ResourceTable.vue'
 import { api, message } from '@/api'
 import { actionsFor, menuItems } from '@/composables/actions'
@@ -159,10 +160,13 @@ function refresh() {
 onMounted(() => {
   void reload()
 })
-watch(identity, () => {
+watch([() => props.clusterId, () => props.kind, namespace], ([clusterId, kind], previous) => {
   selected.value = null
   menu.value = null
-  resources.reset()
+  // A namespace is one filter among the others, so changing it keeps the
+  // label/property query intact. Moving to another cluster or resource kind
+  // starts a genuinely different table and clears the whole query.
+  if (!previous || clusterId !== previous[0] || kind !== previous[1]) resources.reset()
   void reload()
 })
 
@@ -294,6 +298,13 @@ async function remove() {
         Create {{ heading }}…
       </button>
     </header>
+
+    <ResourceFilterBuilder
+      :cluster-id="clusterId"
+      :kind="kind"
+      :namespace="namespace"
+      :custom="kindInfo?.custom"
+    />
 
     <p
       v-if="resources.queryError"

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -49,6 +50,11 @@ const (
 type Change struct {
 	GVR       schema.GroupVersionResource
 	Namespace string
+
+	// LabelSelector and FieldSelector identify the server scope of the watch
+	// that produced this change. Empty means an unfiltered watch.
+	LabelSelector string
+	FieldSelector string
 
 	// Keys name the objects that changed, as client-go's cache keys them:
 	// "namespace/name", or the bare name for a cluster-scoped kind.
@@ -124,8 +130,10 @@ type WatchHub struct {
 }
 
 type watchKey struct {
-	gvr       schema.GroupVersionResource
-	namespace string
+	gvr           schema.GroupVersionResource
+	namespace     string
+	labelSelector string
+	fieldSelector string
 }
 
 // entry is a watch and when it was last read from, which is what the budget
@@ -158,20 +166,22 @@ func NewWatchHub(client dynamic.Interface, notify func(Change)) *WatchHub {
 // Ensure starts a watch if one is not already running, and returns it.
 //
 // The caller passes the namespace it is displaying; an empty namespace watches
-// the whole cluster. There is deliberately no context parameter: a watch
+// the whole cluster. Label and field selectors narrow server scope and become
+// part of the watch identity. There is deliberately no context parameter: a watch
 // outlives the request that asked for it, and ends only through Stop,
 // StopNamespace or Close.
-func (h *WatchHub) Ensure(gvr schema.GroupVersionResource, namespace string) *Watch {
+func (h *WatchHub) Ensure(gvr schema.GroupVersionResource, namespace, labelSelector, fieldSelector string) *Watch {
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
 		return nil
 	}
 
-	// A watch over every namespace already answers for one namespace, so a
-	// view that narrows down reuses it rather than opening a second informer
-	// holding a subset of the same objects.
-	if namespace != "" {
+	scoped := labelSelector != "" || fieldSelector != ""
+
+	// An unfiltered watch over every namespace already answers for one namespace,
+	// so a view that narrows down reuses it rather than opening a second informer.
+	if !scoped && namespace != "" {
 		if wide, ok := h.watches[watchKey{gvr: gvr}]; ok {
 			wide.lastUsed = time.Now()
 			h.mu.Unlock()
@@ -179,18 +189,18 @@ func (h *WatchHub) Ensure(gvr schema.GroupVersionResource, namespace string) *Wa
 		}
 	}
 
-	key := watchKey{gvr: gvr, namespace: namespace}
+	key := watchKey{gvr: gvr, namespace: namespace, labelSelector: labelSelector, fieldSelector: fieldSelector}
 	if existing, ok := h.watches[key]; ok {
 		existing.lastUsed = time.Now()
 		h.mu.Unlock()
 		return existing.watch
 	}
 
-	// The reverse case: a cluster-wide view makes any per-namespace watch of
-	// the same type redundant.
-	if namespace == "" {
+	// The reverse case: a cluster-wide unfiltered view makes any per-namespace
+	// watch of the same type redundant.
+	if !scoped && namespace == "" {
 		for candidate, narrow := range h.watches {
-			if candidate.gvr == gvr && candidate.namespace != "" {
+			if candidate.gvr == gvr && candidate.namespace != "" && candidate.labelSelector == "" && candidate.fieldSelector == "" {
 				narrow.watch.Stop()
 				delete(h.watches, candidate)
 			}
@@ -198,7 +208,13 @@ func (h *WatchHub) Ensure(gvr schema.GroupVersionResource, namespace string) *Wa
 	}
 	h.evictLocked(maxWatches - 1)
 
-	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(h.client, resyncPeriod, namespace, nil)
+	label := labelSelector
+	field := fieldSelector
+	tweak := func(options *metav1.ListOptions) {
+		options.LabelSelector = label
+		options.FieldSelector = field
+	}
+	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(h.client, resyncPeriod, namespace, tweak)
 	informer := factory.ForResource(gvr)
 
 	watch := &Watch{
@@ -236,9 +252,19 @@ func (h *WatchHub) Ensure(gvr schema.GroupVersionResource, namespace string) *Wa
 
 // Existing returns a running watch, or nil. It lets a reader use the cache
 // when it is warm without starting a watch as a side effect.
-func (h *WatchHub) Existing(gvr schema.GroupVersionResource, namespace string) *Watch {
+func (h *WatchHub) Existing(gvr schema.GroupVersionResource, namespace, labelSelector, fieldSelector string) *Watch {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	exact := watchKey{gvr: gvr, namespace: namespace, labelSelector: labelSelector, fieldSelector: fieldSelector}
+	if found, ok := h.watches[exact]; ok && found.watch.Synced() {
+		found.lastUsed = time.Now()
+		return found.watch
+	}
+
+	if labelSelector != "" || fieldSelector != "" {
+		return nil
+	}
 
 	for _, key := range []watchKey{{gvr: gvr, namespace: namespace}, {gvr: gvr}} {
 		found, ok := h.watches[key]
@@ -388,7 +414,13 @@ func (h *WatchHub) flush(key watchKey) {
 		return
 	}
 
-	change := Change{GVR: key.gvr, Namespace: key.namespace, Full: waiting.full}
+	change := Change{
+		GVR:           key.gvr,
+		Namespace:     key.namespace,
+		LabelSelector: key.labelSelector,
+		FieldSelector: key.fieldSelector,
+		Full:          waiting.full,
+	}
 	if !waiting.full {
 		change.Keys = make([]string, 0, len(waiting.keys))
 		for objectKey := range waiting.keys {

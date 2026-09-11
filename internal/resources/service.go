@@ -96,8 +96,7 @@ func NewService(clusters *cluster.Manager, emitter Emitter) *Service {
 
 // ParseListQuery validates a table query before the UI applies it.
 func (s *Service) ParseListQuery(query domain.ListQuery) domain.QueryDiagnostic {
-	_, diag := resquery.Compile(query)
-	return diag
+	return resquery.ValidateQuery(query)
 }
 
 // List answers one table query.
@@ -112,14 +111,21 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 	if !ok {
 		return domain.ResourcePage{}, fmt.Errorf("unknown resource type %q", kind)
 	}
-	if _, diag := resquery.Compile(query); !diag.Valid {
+	if diag := resquery.ValidateQuery(query); !diag.Valid {
 		return domain.ResourcePage{}, fmt.Errorf("invalid query: %s", diag.Error)
 	}
+	selectors, _ := resquery.ParseSelectors(query.LabelSelector, query.FieldSelector)
 	if !info.Namespaced {
 		query.Namespace = domain.AllNamespaces
 	}
 
-	key := view{clusterID: clusterID, kind: kind, namespace: query.Namespace}
+	key := view{
+		clusterID:     clusterID,
+		kind:          kind,
+		namespace:     query.Namespace,
+		labelSelector: selectors.Label,
+		fieldSelector: selectors.Field,
+	}
 
 	// An append is answered from the rows already rendered. Re-reading the
 	// cluster to hand out the next five hundred of an order that has not
@@ -130,7 +136,7 @@ func (s *Service) List(ctx context.Context, clusterID string, kind domain.Kind, 
 		}
 	}
 
-	objects, outcome, err := s.read(ctx, clusterID, info, query.Namespace, true)
+	objects, outcome, err := s.read(ctx, clusterID, info, query.Namespace, true, selectors)
 	if err != nil {
 		return domain.ResourcePage{}, err
 	}
@@ -234,6 +240,9 @@ func (s *Service) affected(clusterID string, change kube.Change) map[view]*table
 		if change.Namespace != domain.AllNamespaces && change.Namespace != key.namespace {
 			continue
 		}
+		if key.labelSelector != change.LabelSelector || key.fieldSelector != change.FieldSelector {
+			continue
+		}
 		out[key] = rendered
 	}
 	return out
@@ -249,7 +258,7 @@ func (s *Service) refresh(clusterID string, key view, rendered *table, change ku
 	info := rendered.info
 	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
 
-	watch := hub.Existing(gvr, key.namespace)
+	watch := hub.Existing(gvr, key.namespace, key.labelSelector, key.fieldSelector)
 	if watch == nil {
 		return nil, false, fmt.Errorf("no warm cache for %s", info.Resource)
 	}
@@ -297,6 +306,7 @@ func (s *Service) read(
 	info domain.KindInfo,
 	namespace string,
 	subscribe bool,
+	selectors resquery.Selectors,
 ) ([]*unstructured.Unstructured, readOutcome, error) {
 	client, err := s.clusters.Client(clusterID)
 	if err != nil {
@@ -306,7 +316,7 @@ func (s *Service) read(
 
 	hub, hubErr := s.clusters.Hub(clusterID)
 	if hubErr == nil {
-		if watch := hub.Existing(gvr, namespace); watch != nil {
+		if watch := hub.Existing(gvr, namespace, selectors.Label, selectors.Field); watch != nil {
 			cached, err := watch.List(namespace)
 			if err == nil {
 				return toUnstructured(cached), readOutcome{access: domain.ListAccessLive}, nil
@@ -315,6 +325,12 @@ func (s *Service) read(
 	}
 
 	options := metav1.ListOptions{Limit: coldBudget}
+	if selectors.Label != "" {
+		options.LabelSelector = selectors.Label
+	}
+	if selectors.Field != "" {
+		options.FieldSelector = selectors.Field
+	}
 	var list *unstructured.UnstructuredList
 	if namespace == domain.AllNamespaces {
 		list, err = client.Dynamic.Resource(gvr).List(ctx, options)
@@ -325,6 +341,12 @@ func (s *Service) read(
 		if apierrors.IsForbidden(err) {
 			return nil, readOutcome{access: domain.ListAccessForbidden}, nil
 		}
+		if selectors.Field != "" && apierrors.IsBadRequest(err) {
+			return nil, readOutcome{}, fmt.Errorf(
+				"%s cannot be filtered by this property. Try a label or table filter instead.",
+				info.Title,
+			)
+		}
 		return nil, readOutcome{}, fmt.Errorf("list %s: %w", gvr.Resource, err)
 	}
 
@@ -332,7 +354,7 @@ func (s *Service) read(
 	outcome := readOutcome{observedAt: &now}
 	canWatch := hasVerb(info.Verbs, "watch")
 	if subscribe && hubErr == nil && canWatch {
-		hub.Ensure(gvr, namespace)
+		hub.Ensure(gvr, namespace, selectors.Label, selectors.Field)
 		outcome.access = domain.ListAccessLive
 		outcome.loading = list.GetContinue() != ""
 	} else {
@@ -381,7 +403,7 @@ func (s *Service) readMatching(
 	selector labels.Selector,
 ) ([]*unstructured.Unstructured, bool, error) {
 	if selector == nil || selector.Empty() {
-		objects, outcome, err := s.read(ctx, clusterID, info, namespace, false)
+		objects, outcome, err := s.read(ctx, clusterID, info, namespace, false, resquery.Selectors{})
 		return objects, outcome.loading, err
 	}
 
@@ -394,7 +416,7 @@ func (s *Service) readMatching(
 	// A warm cache already holds the namespace, so it is filtered here rather
 	// than asked for a second time with the selector attached.
 	if hub, hubErr := s.clusters.Hub(clusterID); hubErr == nil {
-		if watch := hub.Existing(gvr, namespace); watch != nil {
+		if watch := hub.Existing(gvr, namespace, "", ""); watch != nil {
 			if cached, err := watch.List(namespace); err == nil {
 				return matching(toUnstructured(cached), selector), false, nil
 			}
@@ -487,7 +509,7 @@ func (s *Service) Search(ctx context.Context, clusterID, query, namespace string
 		if !info.Namespaced {
 			scope = domain.AllNamespaces
 		}
-		objects, outcome, err := s.read(ctx, clusterID, info, scope, false)
+		objects, outcome, err := s.read(ctx, clusterID, info, scope, false, resquery.Selectors{})
 		if err != nil || outcome.access == domain.ListAccessForbidden {
 			// A kind this account cannot list is skipped rather than failing
 			// the whole search.

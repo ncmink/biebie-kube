@@ -15,11 +15,13 @@ import (
 )
 
 // view identifies one table the UI has open: a kind of a cluster, seen through
-// one namespace.
+// one namespace and optional server selectors.
 type view struct {
-	clusterID string
-	kind      domain.Kind
-	namespace string
+	clusterID     string
+	kind          domain.Kind
+	namespace     string
+	labelSelector string
+	fieldSelector string
 }
 
 // table holds every rendered row of one view.

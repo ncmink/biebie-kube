@@ -10,7 +10,7 @@
 | IW-01 CRD discovery fallback | ✅ เสร็จ | released `v0.2.11` (`60c7c03`) |
 | IW-02 Read-only policy | ✅ เสร็จ | released `v0.2.12` (`7e3df2b`) |
 | IW-03 Explain Why | ✅ เสร็จ | released `v0.2.13` (`abedfc7`) |
-| IW-04 Typed filters | 🚧 รอ release gate | expression mode MVP locally |
+| IW-04 Typed filters | 🚧 รอ release gate | expression `v0.2.14`; selectors locally `v0.2.15` |
 
 ## IW-03 — Explain Why
 
@@ -30,10 +30,10 @@ Released `v0.2.13` (`abedfc7`). See git tag for full EXP-* coverage.
 | QRY-06 | ✅ | Age จาก `CreatedAt` + shared `EvalContext.Now` |
 | QRY-07 | ⏭️ | Active-view metrics refresh policy deferred (reuse 15s TTL) |
 | QRY-08 | ✅ | Filter บน cache ครบ scope ก่อน window (`table.orderedLocked`) |
-| QRY-09 | ⏭️ | Label/field selector UI + server scope deferred |
-| QRY-10 | ⏭️ | Selector wiring ใน list/watch path deferred |
-| QRY-11 | ⏭️ | Watch key รวม selectors deferred |
-| QRY-12 | ✅ | Query token เปลี่ยนเมื่อ mode/expression/sort เปลี่ยน |
+| QRY-09 | ✅ | Label/field selector inputs + Apply scope ใน `ResourceList.vue` |
+| QRY-10 | ✅ | `ParseSelectors` + list/read ส่ง selectors ไป API (`table.go`, `service.go`) |
+| QRY-11 | ✅ | Watch key รวม label/field; filtered informer factory (`informer.go`) |
+| QRY-12 | ✅ | Query token เปลี่ยนเมื่อ mode/expression/selectors/sort เปลี่ยน |
 | QRY-13 | ✅ (partial) | `total`, `matched`, `loaded`, `unknown` ใน `ResourcePage` |
 | QRY-14 | ✅ | Compile once; cap 2 KiB / 20 terms; debounce 150ms |
 
@@ -42,26 +42,34 @@ Released `v0.2.13` (`abedfc7`). See git tag for full EXP-* coverage.
 | รายการ | ไฟล์ |
 |---|---|
 | Parser + evaluator | `internal/resources/query/` |
+| Selector parse/validate | `internal/resources/query/selectors.go` |
 | Table integration | `internal/resources/table.go` |
+| Watch identity | `internal/kube/informer.go` |
 | `ParseListQuery` | `service_resource.go` |
 | Name / Expression toggle | `ResourceList.vue`, `stores/resources.ts` |
+| Scope row (label/field) | `ResourceList.vue`, `stores/resources.ts` |
+| Expression autocomplete | `composables/querySuggest.ts` |
+
+### UX notes (local)
+
+- Expression: parse-before-apply — draft ไม่ valid ไม่ revert input; table คง query ล่าสุดที่ valid
+- Autocomplete: แนะนำ field / `missing(` / `AND` หลังพิมพ์ ≥2 ตัวอักษร
+- Selectors: Apply scope ผ่าน `ParseListQuery`; field selector ไม่รองรับ kind → actionable error
 
 ### ผลทดสอบ (local, 2026-09-11)
 
 ```text
-go test ./internal/resources/query/... ./internal/resources/...  → PASS
-wails3 generate bindings -clean=true -ts -i                       → PASS
-npm --prefix frontend run build                                   → PASS
-go build -tags production -o bin/biebie-kube .                    → PASS
+go test ./internal/resources/query/... ./internal/resources/... ./internal/kube/...  → PASS
+npm --prefix frontend run build                                                   → PASS
+go build -tags production -o bin/biebie-kube .                                    → PASS
 ```
 
 ### Version
 
-`0.2.14`
+- Expression filters: released `v0.2.14`
+- Label/field selectors + watch identity: local `0.2.15` (pending tag)
 
 ## ฟีเจอร์ถัดไป (หลัง release gate ผ่าน)
-
-**IW-04 (ต่อ)** — label/field selectors + watch identity (`QRY-09`–`QRY-11`)
 
 **IW-07 Saved views** (`VIEW-*`) — หลัง query contract นิ่ง
 

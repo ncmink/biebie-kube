@@ -73,6 +73,11 @@ export const api = {
   setClusterAccessMode: ClusterService.SetClusterAccessMode,
   setSessionReadOnly: ClusterService.SetSessionReadOnly,
 
+  listSavedViews: list(ClusterService.ListSavedViews),
+  saveSavedView: ClusterService.SaveSavedView,
+  deleteSavedView: ClusterService.DeleteSavedView,
+  resolveSavedView: ClusterService.ResolveSavedView,
+
   listResources: ResourceService.ListResources,
   parseListQuery: ResourceService.ParseListQuery,
   countResources: list(ResourceService.CountResources),

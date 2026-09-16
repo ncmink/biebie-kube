@@ -37,12 +37,13 @@ import (
 	"biebie-kube/internal/reveal"
 	"biebie-kube/internal/store"
 	"biebie-kube/internal/terminal"
+	"biebie-kube/internal/views"
 )
 
 // appVersion is shown in Settings, sent as the Kubernetes user agent, and
 // compared with GitHub Releases. Release builds stamp it with
 // -X main.appVersion=…; a var is required so -X can replace it.
-var appVersion = "0.2.15"
+var appVersion = "0.2.16"
 
 // Events published to the frontend by the application layer itself. The
 // per-domain events are declared by the packages that emit them.
@@ -84,6 +85,7 @@ type Core struct {
 	authoring *authoring.Service
 	policy    *policy.Service
 	incident  *incident.Service
+	views     *views.Repository
 
 	// reveal shows a file in the platform's file manager. It is here rather
 	// than inside a service because diagnosing a repository ends at a file in
@@ -103,6 +105,7 @@ func NewCore() (*Core, error) {
 	}
 
 	core := &Core{store: st}
+	core.views = views.NewRepository(st)
 	core.configs = kubeconfig.NewService(st, filepath.Join(filepath.Dir(statePath), "kubeconfigs"))
 
 	accessClient, err := access.NewClient()

@@ -24,6 +24,7 @@ type Data struct {
 	Kubeconfigs []KubeconfigRecord `json:"kubeconfigs"`
 	Clusters    []ClusterRecord    `json:"clusters"`
 	Preferences []PreferenceRecord `json:"preferences"`
+	SavedViews  []SavedViewRecord  `json:"savedViews,omitempty"`
 
 	// Customers holds the presentation state of the cluster list's customer
 	// groups. Only groups that differ from the default appear, so an
@@ -48,7 +49,7 @@ type Data struct {
 func (d Data) AutoImportEnabled() bool { return d.AutoImport == nil || *d.AutoImport }
 
 // CurrentVersion is the schema version written by this build.
-const CurrentVersion = 1
+const CurrentVersion = 2
 
 // KubeconfigRecord remembers a kubeconfig the user imported.
 //
@@ -97,6 +98,26 @@ type ClusterRecord struct {
 
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
+}
+
+// SavedViewRecord persists one named resource table query for one cluster.
+type SavedViewRecord struct {
+	ID        string `json:"id"`
+	ClusterID string `json:"clusterId"`
+	Title     string `json:"title"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+
+	QueryVersion  int      `json:"queryVersion"`
+	Mode          string   `json:"mode,omitempty"`
+	Filter        string   `json:"filter,omitempty"`
+	Expression    string   `json:"expression,omitempty"`
+	LabelSelector string   `json:"labelSelector,omitempty"`
+	FieldSelector string   `json:"fieldSelector,omitempty"`
+	SortKey       string   `json:"sortKey,omitempty"`
+	SortDesc      bool     `json:"sortDesc,omitempty"`
+	ColumnIDs     []string `json:"columnIds,omitempty"`
+	UpdatedAt     string   `json:"updatedAt"`
 }
 
 // PreferenceRecord remembers per-cluster UI choices.
@@ -244,6 +265,10 @@ func (d Data) clone() Data {
 		}
 	}
 	out.Preferences = append([]PreferenceRecord(nil), d.Preferences...)
+	out.SavedViews = append([]SavedViewRecord(nil), d.SavedViews...)
+	for i, view := range out.SavedViews {
+		out.SavedViews[i].ColumnIDs = append([]string(nil), view.ColumnIDs...)
+	}
 	out.Customers = append([]CustomerRecord(nil), d.Customers...)
 	out.SeenContexts = append([]SeenContextRecord(nil), d.SeenContexts...)
 

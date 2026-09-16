@@ -46,6 +46,7 @@ export {
   OwnershipUncertainty,
   PortForwardState,
   QueryMode,
+  SavedViewIssue,
   ProbeResult,
   ResourceAction,
 } from '@bindings/biebie-kube/internal/domain/models'
@@ -127,6 +128,10 @@ export type {
   ResourceRef,
   ResourceInspect,
   ResourceRow,
+  SavedView,
+  SavedViewInput,
+  SavedViewIssueDetail,
+  SavedViewResolution,
   SearchHit,
   Session,
   SSHConfigFile,

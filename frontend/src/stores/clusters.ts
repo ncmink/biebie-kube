@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
+import { useSavedViewsStore } from '@/stores/savedViews'
 import { AccessConnectionState, AccessMode, ClusterState } from '@/types'
 import type {
   AccessState,
@@ -169,6 +170,7 @@ export const useClusterStore = defineStore('clusters', () => {
   /** Forgets a cluster. Biebie's record only — the kubeconfig is left alone. */
   async function remove(clusterId: string) {
     await api.deleteCluster(clusterId)
+    useSavedViewsStore().forgetCluster(clusterId)
     close(clusterId)
     delete sessions.value[clusterId]
     await load()

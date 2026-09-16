@@ -10,6 +10,7 @@ import (
 	"biebie-kube/internal/autoimport"
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kubeconfig"
+	"biebie-kube/internal/views"
 )
 
 // ClusterService is the frontend's door to cluster configuration and the
@@ -255,4 +256,35 @@ func (s *ClusterService) serverFor(input domain.ClusterInput) (string, error) {
 		return "", err
 	}
 	return kubeconfig.ServerFor(path, input.ContextName)
+}
+
+// ListSavedViews returns the named resource queries stored for one cluster.
+func (s *ClusterService) ListSavedViews(clusterID string) []domain.SavedView {
+	return s.core.views.List(clusterID)
+}
+
+// SaveSavedView creates or updates one saved view for a cluster.
+func (s *ClusterService) SaveSavedView(input domain.SavedViewInput) (domain.SavedView, error) {
+	view, err := s.core.views.Save(input)
+	return view, describe(err)
+}
+
+// DeleteSavedView removes one saved view.
+func (s *ClusterService) DeleteSavedView(clusterID, viewID string) error {
+	return describe(s.core.views.Delete(clusterID, viewID))
+}
+
+// ResolveSavedView checks whether a saved view can still be applied.
+func (s *ClusterService) ResolveSavedView(clusterID, viewID string) (domain.SavedViewResolution, error) {
+	view, err := s.core.views.Get(clusterID, viewID)
+	if err != nil {
+		return domain.SavedViewResolution{}, describe(err)
+	}
+	resolution := views.Resolve(
+		view,
+		s.core.clusters.Catalogue(clusterID),
+		s.core.clusters.Namespaces(clusterID),
+		s.core.resources.ParseListQuery,
+	)
+	return resolution, nil
 }

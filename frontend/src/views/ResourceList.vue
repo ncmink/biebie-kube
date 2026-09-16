@@ -7,6 +7,7 @@ import CreateResourceDialog from '@/components/resource/CreateResourceDialog.vue
 import ResourceActionDialog from '@/components/resource/ResourceActionDialog.vue'
 import ResourceDrawer from '@/components/resource/ResourceDrawer.vue'
 import ResourceFilterBuilder from '@/components/resource/ResourceFilterBuilder.vue'
+import SavedViewControls from '@/components/resource/SavedViewControls.vue'
 import ResourceTable from '@/components/resource/ResourceTable.vue'
 import { api, message } from '@/api'
 import { actionsFor, menuItems } from '@/composables/actions'
@@ -306,6 +307,13 @@ async function remove() {
       :custom="kindInfo?.custom"
     />
 
+    <SavedViewControls
+      :cluster-id="clusterId"
+      :kind="kind"
+      :namespace="namespace"
+      :kind-title="kindInfo?.title ?? kind"
+    />
+
     <p
       v-if="resources.queryError"
       class="shrink-0 border-b border-line bg-warn/10 px-6 py-2 text-xs text-warn"
@@ -330,7 +338,7 @@ async function remove() {
           v-else
           :identity="identity"
           :rows="resources.rows"
-          :columns="resources.columns"
+          :columns="resources.displayColumns"
           :namespaced="resources.namespaced"
           :sort-key="resources.sortKey"
           :sort-desc="resources.sortDesc"

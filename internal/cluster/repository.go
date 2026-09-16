@@ -18,6 +18,7 @@ import (
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/store"
+	"biebie-kube/internal/views"
 )
 
 // Repository stores cluster records.
@@ -197,6 +198,7 @@ func (r *Repository) Delete(id string) error {
 			}
 		}
 		data.Preferences = prefs
+		views.DeleteForCluster(data, id)
 		pruneCustomers(data)
 		return nil
 	})

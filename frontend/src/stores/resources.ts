@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, events, message, on } from '@/api'
-import type { Column, ListQuery, ResourcePage, ResourceRow, RowsChanged } from '@/types'
+import type { Column, Kind, ListQuery, ResourcePage, ResourceRow, RowsChanged, SavedView, SavedViewInput } from '@/types'
 import { QueryMode } from '@/types'
 
 /** The window the table asks for, and grows by as the user scrolls. */
@@ -56,6 +56,13 @@ export const useResourceStore = defineStore('resources', () => {
   // always looking for what just changed.
   const sortKey = ref(defaultSortKey)
   const sortDesc = ref(true)
+  const visibleColumnKeys = ref<string[]>([])
+
+  const displayColumns = computed(() => {
+    if (visibleColumnKeys.value.length === 0) return columns.value
+    const allowed = new Set(visibleColumnKeys.value)
+    return columns.value.filter((column) => allowed.has(column.key))
+  })
 
   const current = ref<View | null>(null)
 
@@ -358,6 +365,7 @@ export const useResourceStore = defineStore('resources', () => {
     fieldSelector.value = ''
     selectorError.value = ''
     queryError.value = ''
+    visibleColumnKeys.value = []
     sortKey.value = defaultSortKey
     sortDesc.value = true
     syncing.value = false
@@ -394,9 +402,61 @@ export const useResourceStore = defineStore('resources', () => {
     on(events.rows, patch)
   }
 
+  function captureSavedView(
+    clusterId: string,
+    kind: Kind,
+    namespace: string,
+  ): Omit<SavedViewInput, 'title' | 'id'> {
+    return {
+      clusterId,
+      kind,
+      namespace,
+      mode: queryMode.value,
+      filter: queryMode.value === QueryMode.QueryModeText ? filter.value.trim() : '',
+      expression:
+        queryMode.value === QueryMode.QueryModeExpression ? expression.value.trim() : '',
+      labelSelector: labelSelector.value.trim(),
+      fieldSelector: fieldSelector.value.trim(),
+      sortKey: sortKey.value,
+      sortDesc: sortDesc.value,
+      columnIds: visibleColumnKeys.value.length ? [...visibleColumnKeys.value] : [],
+    }
+  }
+
+  async function applySavedView(snapshot: SavedView): Promise<boolean> {
+    const view = current.value
+    if (!view) return false
+
+    queryMode.value = snapshot.mode || QueryMode.QueryModeText
+    filter.value = snapshot.filter ?? ''
+    expression.value = snapshot.expression ?? ''
+    lastValidExpression.value = snapshot.expression ?? ''
+    draftLabelSelector.value = snapshot.labelSelector ?? ''
+    draftFieldSelector.value = snapshot.fieldSelector ?? ''
+    labelSelector.value = snapshot.labelSelector ?? ''
+    fieldSelector.value = snapshot.fieldSelector ?? ''
+    sortKey.value = snapshot.sortKey || defaultSortKey
+    sortDesc.value = snapshot.sortDesc ?? true
+    visibleColumnKeys.value = snapshot.columnIds ? [...snapshot.columnIds] : []
+    selectorError.value = ''
+    queryError.value = ''
+
+    if (queryMode.value === QueryMode.QueryModeExpression && expression.value.trim() !== '') {
+      await applyExpression()
+      return queryError.value === ''
+    }
+    if (labelSelector.value || fieldSelector.value) {
+      return applySelectors()
+    }
+    await load(view.clusterId, view.kind, view.namespace, true)
+    return true
+  }
+
   return {
     rows,
     columns,
+    displayColumns,
+    visibleColumnKeys,
     namespaced,
     total,
     matched,
@@ -423,6 +483,8 @@ export const useResourceStore = defineStore('resources', () => {
     setQueryMode,
     setExpression,
     applySelectors,
+    captureSavedView,
+    applySavedView,
     sortBy,
     reset,
     subscribe,

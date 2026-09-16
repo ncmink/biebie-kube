@@ -5,6 +5,8 @@ import { useRoute, useRouter } from 'vue-router'
 import StateDot from './StateDot.vue'
 import { api, message } from '@/api'
 import { useClusterStore } from '@/stores/clusters'
+import { useResourceStore } from '@/stores/resources'
+import { useSavedViewsStore } from '@/stores/savedViews'
 import { useUIStore } from '@/stores/ui'
 import type { SearchHit } from '@/types'
 
@@ -16,6 +18,8 @@ interface Command {
 }
 
 const clusters = useClusterStore()
+const resources = useResourceStore()
+const savedViews = useSavedViewsStore()
 const ui = useUIStore()
 const router = useRouter()
 const route = useRoute()
@@ -107,6 +111,37 @@ const commands = computed<Command[]>(() => {
     },
   )
 
+  for (const cluster of clusters.clusters) {
+    for (const view of savedViews.byCluster[cluster.id] ?? []) {
+      list.push({
+        id: `view:${cluster.id}:${view.id}`,
+        title: `Open saved view “${view.title}”`,
+        hint: `${cluster.name} · ${cluster.id}`,
+        run: async () => {
+          if (clusters.activeId !== cluster.id) {
+            await clusters.open(cluster.id)
+          }
+          await router.push({
+            name: 'resources',
+            params: { clusterId: cluster.id, kind: view.kind },
+          })
+          if (view.namespace) {
+            await clusters.setNamespace(cluster.id, view.namespace)
+          }
+          const resolution = await savedViews.resolve(cluster.id, view.id)
+          if (!resolution.valid) {
+            ui.say(
+              `Saved view “${view.title}” on ${cluster.name} (${cluster.id}) needs attention: ${(resolution.issues ?? []).map((issue) => issue.message).join(' ')}`,
+              'bad',
+            )
+            return
+          }
+          await resources.applySavedView(resolution.view)
+        },
+      })
+    }
+  }
+
   return list
 })
 
@@ -144,6 +179,7 @@ watch(
     query.value = ''
     highlighted.value = 0
     hits.value = []
+    await Promise.all(clusters.clusters.map((cluster) => savedViews.load(cluster.id)))
     await nextTick()
     input.value?.focus()
   },

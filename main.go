@@ -96,7 +96,7 @@ func main() {
 		// window. A second process would give the engineer two windows with
 		// two sets of port forwards pointing at the same customer.
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "net.biebie.kube",
+			UniqueID: singleInstanceID,
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
 				present()
 				if link := deepLinkFrom(data.Args); link != "" {

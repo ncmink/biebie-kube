@@ -10,10 +10,12 @@
 		<string>icons</string>
 		<key>CFBundleIconName</key>
 		<string>appicon</string>
+		<key>CFBundleDisplayName</key>
+		<string>Biebie Kube Dev</string>
 		<key>CFBundleIdentifier</key>
-		<string>net.biebie.kube</string>
+		<string>net.biebie.kube.dev</string>
 		<key>CFBundleName</key>
-		<string>Biebie Kube</string>
+		<string>Biebie Kube Dev</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -22,7 +24,7 @@
 		<array>
 			<dict>
 				<key>CFBundleURLName</key>
-				<string>net.biebie.biebie-kube</string>
+				<string>net.biebie.kube.dev</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>biebie-kube</string>

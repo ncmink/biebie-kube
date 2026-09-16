@@ -287,5 +287,5 @@ func DefaultPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve configuration directory: %w", err)
 	}
-	return filepath.Join(dir, "biebie-kube", "data.json"), nil
+	return filepath.Join(dir, appDataDirName, "data.json"), nil
 }

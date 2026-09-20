@@ -1,6 +1,6 @@
 # Incident Workspace — Progress
 
-อัปเดตล่าสุด: 2026-09-12
+อัปเดตล่าสุด: 2026-09-16
 
 ## ฟีเจอร์ปัจจุบัน
 
@@ -11,13 +11,27 @@
 | IW-02 Read-only policy | ✅ เสร็จ | released `v0.2.12` (`7e3df2b`) |
 | IW-03 Explain Why | ✅ เสร็จ | released `v0.2.13` (`abedfc7`) |
 | IW-04 Typed filters | ✅ เสร็จ | released `v0.2.15` (`9b87039`) |
-| IW-07 Saved views | 🚧 รอ release gate | local `v0.2.16` |
+| IW-07 Saved views | ✅ เสร็จ | released `v0.2.16` |
+
+## สิ่งที่โชว์บน biebie.net
+
+หน้า `/biebie-kube` อธิบายฟีเจอร์ Incident Workspace ที่ ship แล้ว:
+
+| ฟีเจอร์ | Work package | หมายเหตุ marketing |
+|---|---|---|
+| Custom resources without CRD list | IW-01 | ขยายจาก “Around forty resource kinds” |
+| Read-only mode per cluster | IW-02 | + FAQ เรื่อง investigation โดยไม่ mutate |
+| Explain why a workload is stuck | IW-03 | findings + next steps |
+| Typed filters and selectors | IW-04 | expression + label/field + filter builder |
+| Saved views | IW-07 | command palette + resource list |
 
 ## IW-04 — Typed filters
 
 Released `v0.2.15` (`9b87039`). Expression filters (`v0.2.14`), selectors + `ResourceFilterBuilder` UX (`v0.2.15`).
 
 ## IW-07 — Saved views
+
+Released `v0.2.16`.
 
 ### Requirement IDs
 
@@ -39,7 +53,7 @@ Released `v0.2.15` (`9b87039`). Expression filters (`v0.2.14`), selectors + `Res
 | Store | `frontend/src/stores/savedViews.ts`, `stores/resources.ts` |
 | UI | `SavedViewControls.vue`, `CommandPalette.vue` |
 
-### ผลทดสอบ (local, 2026-09-12)
+### ผลทดสอบ (release gate, 2026-09-16)
 
 ```text
 go test ./internal/views/... ./internal/resources/...  → PASS
@@ -47,9 +61,9 @@ npm --prefix frontend run build                       → PASS
 go build -tags production -o bin/biebie-kube .        → PASS
 ```
 
-### Version
+### Dev/prod isolation (`v0.2.16`)
 
-Local `0.2.16` (pending tag)
+Dev build ใช้ bundle id / single-instance / state path แยกจาก production (`biebie-kube-dev`) เพื่อไม่ให้ schema ใหม่ใน dev ทำให้ prod เปิดไม่ขึ้น
 
 ## ฟีเจอร์ถัดไป
 

@@ -8,7 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 
 	"biebie-kube/internal/domain"
 )
@@ -68,7 +71,11 @@ func (s *Service) InspectResource(ctx context.Context, clusterID string, ref dom
 	if err != nil {
 		return domain.ResourceInspect{}, err
 	}
-	return Inspect(ref.Kind, obj), nil
+	out := Inspect(ref.Kind, obj)
+	if ref.Kind == domain.KindNode {
+		out.Properties = s.enrichNodeCapacity(ctx, clusterID, obj.GetName(), out.Properties)
+	}
+	return out, nil
 }
 
 func inspectPDB(obj *unstructured.Unstructured) []domain.InspectProperty {
@@ -163,6 +170,68 @@ func inspectService(obj *unstructured.Unstructured) []domain.InspectProperty {
 	// workload uses, so it cannot share selectorString.
 	out.mono("Selector", mapString(obj, "spec", "selector"))
 	out.add("Session Affinity", nestedString(obj, "spec", "sessionAffinity"))
+	return out
+}
+
+func (s *Service) enrichNodeCapacity(ctx context.Context, clusterID, nodeName string, base []domain.InspectProperty) []domain.InspectProperty {
+	client, err := s.clusters.Client(clusterID)
+	if err != nil {
+		return base
+	}
+
+	node, err := client.Clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return base
+	}
+
+	pods, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("spec.nodeName", nodeName).String(),
+	})
+	if err != nil {
+		return base
+	}
+
+	capacity, _ := nodeCapacity([]corev1.Node{*node}, pods.Items, s.nodeUsage(ctx, clusterID))
+	if len(capacity) == 0 {
+		return base
+	}
+	entry := capacity[0]
+
+	extra := props{}
+	extra.add("Requests", formatAllocated(
+		entry.CPURequestMilli,
+		entry.MemoryRequestBytes,
+		entry.CPUAllocatableMilli,
+		entry.MemoryAllocatableBytes,
+	))
+	extra.add("Limits", formatLimits(
+		entry.CPULimitMilli,
+		entry.MemoryLimitBytes,
+		entry.CPUAllocatableMilli,
+		entry.MemoryAllocatableBytes,
+	))
+	extra.add("Pods", formatPodsUsed(entry.PodsUsed, entry.MaxPods))
+	if entry.CPUUsedMilli > 0 || entry.MemoryUsedBytes > 0 {
+		extra.add("Usage", formatAllocated(
+			entry.CPUUsedMilli,
+			entry.MemoryUsedBytes,
+			entry.CPUAllocatableMilli,
+			entry.MemoryAllocatableBytes,
+		))
+	}
+
+	out := make([]domain.InspectProperty, 0, len(base)+len(extra))
+	inserted := false
+	for _, property := range base {
+		out = append(out, property)
+		if property.Label == "Allocatable" {
+			out = append(out, extra...)
+			inserted = true
+		}
+	}
+	if !inserted {
+		out = append(out, extra...)
+	}
 	return out
 }
 

@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import StateDot from '@/components/common/StateDot.vue'
 import { api, message, openInBrowser } from '@/api'
 import { age, bytes, millicores } from '@/composables/format'
 import { Health } from '@/types'
-import type { ClusterOverview, Forward } from '@/types'
+import type { ClusterOverview, Forward, NodeCapacity } from '@/types'
 import { useClusterStore } from '@/stores/clusters'
 
 const props = defineProps<{ clusterId: string }>()
 
+const router = useRouter()
 const clusters = useClusterStore()
 
 const overview = ref<ClusterOverview | null>(null)
@@ -68,6 +70,57 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+/** Denominator for usage bars: allocatable when known, else capacity. */
+function cpuTotal(metrics: NonNullable<ClusterOverview['metrics']>) {
+  return metrics.cpuAllocatableMilli || metrics.cpuCapacityMilli
+}
+
+function memoryTotal(metrics: NonNullable<ClusterOverview['metrics']>) {
+  return metrics.memoryAllocatableBytes || metrics.memoryCapacityBytes
+}
+
+function percent(used: number, total: number) {
+  if (total <= 0) return 0
+  return Math.min(100, (used / total) * 100)
+}
+
+function barClass(pct: number) {
+  if (pct >= 90) return 'bg-bad'
+  if (pct >= 70) return 'bg-warn'
+  return 'bg-brand'
+}
+
+function nodePressure(node: NodeCapacity) {
+  return Math.max(
+    percent(node.cpuRequestMilli, node.cpuAllocatableMilli),
+    percent(node.memoryRequestBytes, node.memoryAllocatableBytes),
+    percent(node.podsUsed, node.maxPods),
+  )
+}
+
+const sortedNodes = computed(() => {
+  const nodes = overview.value?.nodeCapacity ?? []
+  return [...nodes].sort((left, right) => nodePressure(right) - nodePressure(left))
+})
+
+function nodeStatus(node: NodeCapacity) {
+  if (!node.ready) return 'NotReady'
+  if (node.cordoned) return 'Cordoned'
+  return 'Ready'
+}
+
+function openNode(node: NodeCapacity) {
+  void router.push({
+    name: 'resource',
+    params: {
+      clusterId: props.clusterId,
+      kind: 'nodes',
+      namespace: '_',
+      name: node.name,
+    },
+  })
 }
 
 onMounted(load)
@@ -179,14 +232,15 @@ watch(() => props.clusterId, load)
             <p class="text-xs text-ink-faint">CPU</p>
             <p class="font-mono text-xs text-ink-muted">
               {{ millicores(overview.metrics.cpuUsedMilli) }} /
-              {{ millicores(overview.metrics.cpuCapacityMilli) }}
+              {{ millicores(cpuTotal(overview.metrics)) }}
             </p>
           </div>
           <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
             <div
-              class="h-full rounded-full bg-brand"
+              class="h-full rounded-full"
+              :class="barClass(percent(overview.metrics.cpuUsedMilli, cpuTotal(overview.metrics)))"
               :style="{
-                width: `${Math.min(100, (overview.metrics.cpuUsedMilli / Math.max(1, overview.metrics.cpuCapacityMilli)) * 100)}%`,
+                width: `${percent(overview.metrics.cpuUsedMilli, cpuTotal(overview.metrics))}%`,
               }"
             />
           </div>
@@ -196,14 +250,15 @@ watch(() => props.clusterId, load)
             <p class="text-xs text-ink-faint">Memory</p>
             <p class="font-mono text-xs text-ink-muted">
               {{ bytes(overview.metrics.memoryUsedBytes) }} /
-              {{ bytes(overview.metrics.memoryCapacityBytes) }}
+              {{ bytes(memoryTotal(overview.metrics)) }}
             </p>
           </div>
           <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
             <div
-              class="h-full rounded-full bg-brand"
+              class="h-full rounded-full"
+              :class="barClass(percent(overview.metrics.memoryUsedBytes, memoryTotal(overview.metrics)))"
               :style="{
-                width: `${Math.min(100, (overview.metrics.memoryUsedBytes / Math.max(1, overview.metrics.memoryCapacityBytes)) * 100)}%`,
+                width: `${percent(overview.metrics.memoryUsedBytes, memoryTotal(overview.metrics))}%`,
               }"
             />
           </div>
@@ -216,6 +271,121 @@ watch(() => props.clusterId, load)
         This cluster has no metrics-server, so CPU and memory usage are unavailable. Everything else
         works normally.
       </p>
+
+      <section v-if="overview.nodeCapacity?.length" class="mt-6">
+        <div class="flex items-baseline justify-between gap-3">
+          <h2 class="text-xs font-semibold uppercase tracking-widest text-ink-faint">
+            Node capacity
+          </h2>
+          <p v-if="overview.unscheduledPods" class="text-xs text-warn">
+            {{ overview.unscheduledPods }} pod{{ overview.unscheduledPods === 1 ? '' : 's' }} waiting
+            for a node
+          </p>
+        </div>
+        <div class="mt-2 overflow-hidden rounded-xl border border-line">
+          <div
+            class="hidden grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))] gap-3 border-b border-line bg-surface-3 px-4 py-2 text-[10px] uppercase tracking-wide text-ink-faint lg:grid"
+          >
+            <span>Node</span>
+            <span>CPU used</span>
+            <span>CPU req</span>
+            <span>Mem used</span>
+            <span>Mem req</span>
+            <span>Pods</span>
+          </div>
+          <ul class="divide-y divide-line">
+            <li
+              v-for="node in sortedNodes"
+              :key="node.name"
+              class="grid gap-3 bg-surface-2 px-4 py-3 lg:grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))]"
+            >
+              <button
+                class="min-w-0 text-left"
+                :title="`Open ${node.name}`"
+                @click="openNode(node)"
+              >
+                <span class="block truncate font-mono text-sm text-brand hover:underline">
+                  {{ node.name }}
+                </span>
+                <span class="mt-0.5 block text-[10px] text-ink-faint">{{ nodeStatus(node) }}</span>
+              </button>
+              <div>
+                <p class="font-mono text-xs text-ink-muted">
+                  {{ millicores(node.cpuUsedMilli ?? 0) }} /
+                  {{ millicores(node.cpuAllocatableMilli) }}
+                </p>
+                <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    class="h-full rounded-full"
+                    :class="barClass(percent(node.cpuUsedMilli ?? 0, node.cpuAllocatableMilli))"
+                    :style="{
+                      width: `${percent(node.cpuUsedMilli ?? 0, node.cpuAllocatableMilli)}%`,
+                    }"
+                  />
+                </div>
+              </div>
+              <div>
+                <p class="font-mono text-xs text-ink-muted">
+                  {{ millicores(node.cpuRequestMilli) }}
+                  ({{ percent(node.cpuRequestMilli, node.cpuAllocatableMilli).toFixed(0) }}%)
+                </p>
+                <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    class="h-full rounded-full"
+                    :class="barClass(percent(node.cpuRequestMilli, node.cpuAllocatableMilli))"
+                    :style="{
+                      width: `${percent(node.cpuRequestMilli, node.cpuAllocatableMilli)}%`,
+                    }"
+                  />
+                </div>
+              </div>
+              <div>
+                <p class="font-mono text-xs text-ink-muted">
+                  {{ bytes(node.memoryUsedBytes ?? 0) }} /
+                  {{ bytes(node.memoryAllocatableBytes) }}
+                </p>
+                <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    class="h-full rounded-full"
+                    :class="barClass(percent(node.memoryUsedBytes ?? 0, node.memoryAllocatableBytes))"
+                    :style="{
+                      width: `${percent(node.memoryUsedBytes ?? 0, node.memoryAllocatableBytes)}%`,
+                    }"
+                  />
+                </div>
+              </div>
+              <div>
+                <p class="font-mono text-xs text-ink-muted">
+                  {{ bytes(node.memoryRequestBytes) }}
+                  ({{ percent(node.memoryRequestBytes, node.memoryAllocatableBytes).toFixed(0) }}%)
+                </p>
+                <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    class="h-full rounded-full"
+                    :class="barClass(percent(node.memoryRequestBytes, node.memoryAllocatableBytes))"
+                    :style="{
+                      width: `${percent(node.memoryRequestBytes, node.memoryAllocatableBytes)}%`,
+                    }"
+                  />
+                </div>
+              </div>
+              <div>
+                <p class="font-mono text-xs text-ink-muted">
+                  {{ node.podsUsed }}/{{ node.maxPods }}
+                  ({{ Math.max(0, node.maxPods - node.podsUsed) }} free)
+                </p>
+                <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-3">
+                  <div
+                    class="h-full rounded-full"
+                    :class="barClass(percent(node.podsUsed, node.maxPods))"
+                    :style="{ width: `${percent(node.podsUsed, node.maxPods)}%` }"
+                  />
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
 
       <section class="mt-6">
         <h2 class="text-xs font-semibold uppercase tracking-widest text-ink-faint">

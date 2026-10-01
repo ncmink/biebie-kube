@@ -25,9 +25,11 @@ func (s *Service) Overview(ctx context.Context, clusterID string) (domain.Cluste
 		ServerVersion: client.ServerVersion,
 	}
 
+	var nodeList []corev1.Node
 	if nodes, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
-		overview.Nodes.Total = len(nodes.Items)
-		for _, node := range nodes.Items {
+		nodeList = nodes.Items
+		overview.Nodes.Total = len(nodeList)
+		for _, node := range nodeList {
 			if nodeReady(node) {
 				overview.Nodes.Ready++
 			}
@@ -35,16 +37,25 @@ func (s *Service) Overview(ctx context.Context, clusterID string) (domain.Cluste
 				overview.Platform = node.Status.NodeInfo.OSImage
 			}
 		}
-		overview.Metrics = s.nodeMetrics(ctx, clusterID, nodes.Items)
+		overview.Metrics = s.nodeMetrics(ctx, clusterID, nodeList)
 	}
 
+	var podList []corev1.Pod
 	if pods, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{}); err == nil {
-		overview.Pods.Total = len(pods.Items)
-		for _, pod := range pods.Items {
+		podList = pods.Items
+		overview.Pods.Total = len(podList)
+		for _, pod := range podList {
 			if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
 				overview.Pods.Ready++
 			}
 		}
+	}
+
+	if len(nodeList) > 0 {
+		usage := s.nodeUsage(ctx, clusterID)
+		capacity, unscheduled := nodeCapacity(nodeList, podList, usage)
+		overview.NodeCapacity = capacity
+		overview.UnscheduledPods = unscheduled
 	}
 
 	if namespaces, err := client.Clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{}); err == nil {
@@ -91,12 +102,33 @@ func (s *Service) nodeMetrics(ctx context.Context, clusterID string, nodes []cor
 	for _, node := range nodes {
 		metrics.CPUCapacityMilli += node.Status.Capacity.Cpu().MilliValue()
 		metrics.MemoryCapacityBytes += node.Status.Capacity.Memory().Value()
+		metrics.CPUAllocatableMilli += node.Status.Allocatable.Cpu().MilliValue()
+		metrics.MemoryAllocatableBytes += node.Status.Allocatable.Memory().Value()
 	}
 	for _, item := range usage.Items {
 		metrics.CPUUsedMilli += item.Usage.Cpu().MilliValue()
 		metrics.MemoryUsedBytes += item.Usage.Memory().Value()
 	}
 	return metrics
+}
+
+// nodeUsage returns per-node usage from metrics-server, or nil when absent.
+func (s *Service) nodeUsage(ctx context.Context, clusterID string) map[string]corev1.ResourceList {
+	client, err := s.clusters.Client(clusterID)
+	if err != nil || client.Metrics == nil {
+		return nil
+	}
+
+	list, err := client.Metrics.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+
+	out := make(map[string]corev1.ResourceList, len(list.Items))
+	for _, item := range list.Items {
+		out[item.Name] = item.Usage
+	}
+	return out
 }
 
 func nodeReady(node corev1.Node) bool {

@@ -415,6 +415,13 @@ type ClusterOverview struct {
 	// normal state, not an error.
 	Metrics *ClusterMetrics `json:"metrics,omitempty"`
 
+	// NodeCapacity is per-node allocatable, requests, limits and usage.
+	// Absent when the account cannot list nodes.
+	NodeCapacity []NodeCapacity `json:"nodeCapacity,omitempty"`
+
+	// UnscheduledPods counts Pending pods with no node assigned yet.
+	UnscheduledPods int `json:"unscheduledPods,omitempty"`
+
 	RecentWarnings []EventRow `json:"recentWarnings,omitempty"`
 }
 
@@ -428,9 +435,34 @@ type Counter struct {
 type ClusterMetrics struct {
 	CPUUsedMilli     int64 `json:"cpuUsedMilli"`
 	CPUCapacityMilli int64 `json:"cpuCapacityMilli"`
+	CPUAllocatableMilli int64 `json:"cpuAllocatableMilli"`
 
-	MemoryUsedBytes     int64 `json:"memoryUsedBytes"`
-	MemoryCapacityBytes int64 `json:"memoryCapacityBytes"`
+	MemoryUsedBytes        int64 `json:"memoryUsedBytes"`
+	MemoryCapacityBytes    int64 `json:"memoryCapacityBytes"`
+	MemoryAllocatableBytes int64 `json:"memoryAllocatableBytes"`
+}
+
+// NodeCapacity is one node's allocatable resources, what pods have reserved,
+// and what metrics-server reports as in use.
+type NodeCapacity struct {
+	Name string `json:"name"`
+
+	Ready    bool `json:"ready"`
+	Cordoned bool `json:"cordoned"`
+
+	CPUAllocatableMilli    int64 `json:"cpuAllocatableMilli"`
+	MemoryAllocatableBytes int64 `json:"memoryAllocatableBytes"`
+	MaxPods                int   `json:"maxPods"`
+
+	CPURequestMilli    int64 `json:"cpuRequestMilli"`
+	MemoryRequestBytes int64 `json:"memoryRequestBytes"`
+
+	CPULimitMilli    int64 `json:"cpuLimitMilli"`
+	MemoryLimitBytes int64 `json:"memoryLimitBytes"`
+
+	CPUUsedMilli     int64 `json:"cpuUsedMilli,omitempty"`
+	MemoryUsedBytes  int64 `json:"memoryUsedBytes,omitempty"`
+	PodsUsed         int   `json:"podsUsed"`
 }
 
 // SearchHit is one result of the global resource search.

@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<key>CFBundleDisplayName</key>
+		<string>Biebie Kube Dev</string>
 		<key>CFBundleExecutable</key>
 		<string>biebie-kube</string>
 		<key>CFBundleGetInfoString</key>
@@ -10,21 +12,19 @@
 		<string>icons</string>
 		<key>CFBundleIconName</key>
 		<string>appicon</string>
-		<key>CFBundleDisplayName</key>
-		<string>Biebie Kube Dev</string>
 		<key>CFBundleIdentifier</key>
-		<string>net.biebie.kube.dev</string>
+		<string>net.biebie.kube</string>
 		<key>CFBundleName</key>
-		<string>Biebie Kube Dev</string>
+		<string>Biebie Kube</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
-		<string>0.2.16</string>
+		<string>0.2.17</string>
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
 				<key>CFBundleURLName</key>
-				<string>net.biebie.kube.dev</string>
+				<string>net.biebie.biebie-kube</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>biebie-kube</string>
@@ -32,7 +32,7 @@
 			</dict>
 		</array>
 		<key>CFBundleVersion</key>
-		<string>0.2.16</string>
+		<string>0.2.17</string>
 		<key>LSMinimumSystemVersion</key>
 		<string>12.0.0</string>
 		<key>NSAppTransportSecurity</key>

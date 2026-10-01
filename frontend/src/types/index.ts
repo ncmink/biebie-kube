@@ -112,6 +112,7 @@ export type {
   ManifestResource,
   ManifestSearch,
   MutationGate,
+  NodeCapacity,
   OperationPolicy,
   OwnershipProbe,
   StateComparison,

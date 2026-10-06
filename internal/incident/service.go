@@ -39,6 +39,8 @@ func (s *Service) Explain(ctx context.Context, clusterID string, ref domain.Reso
 	switch ref.Kind {
 	case domain.KindPod:
 		s.collectPod(ctx, clusterID, ref, &bundle)
+	case domain.KindNode:
+		s.collectNode(ctx, clusterID, ref, &bundle)
 	default:
 		if supportedWorkload(ref.Kind) {
 			s.collectWorkload(ctx, clusterID, ref, &bundle)
@@ -47,10 +49,14 @@ func (s *Service) Explain(ctx context.Context, clusterID string, ref domain.Reso
 		}
 	}
 
-	s.collectEvents(ctx, clusterID, ref.Namespace, ref.Name, &bundle)
+	// A node has its own event read, filtered by involvedObject.kind, because
+	// the shared helper matches on name alone.
+	if ref.Kind != domain.KindNode {
+		s.collectEvents(ctx, clusterID, ref.Namespace, ref.Name, &bundle)
+	}
 
 	findings := Analyze(bundle)
-	if supportedWorkload(ref.Kind) && ref.Kind != domain.KindPod {
+	if supportedWorkload(ref.Kind) && ref.Kind != domain.KindPod && ref.Kind != domain.KindNode {
 		findings = append(findings, s.analyzeRelatedPods(ctx, clusterID, ref, &bundle)...)
 		findings = sortFindings(findings)
 	}
@@ -81,6 +87,124 @@ func (s *Service) collectPod(ctx context.Context, clusterID string, ref domain.R
 	bundle.noteScope("Pod state")
 	bundle.noteScope("Container state")
 	recordContainerEvidence(ref, bundle.RootUID, detail, bundle)
+}
+
+// stuckPodEventSample caps how many stuck pods have their events read.
+// The rest are still counted; only the event text is sampled.
+const stuckPodEventSample = 10
+
+func (s *Service) collectNode(ctx context.Context, clusterID string, ref domain.ResourceRef, bundle *EvidenceBundle) {
+	maxPods := 0
+	detail, err := s.resources.NodeDetail(ctx, clusterID, ref.Name)
+	if err != nil {
+		bundle.noteMissing("Node state")
+		bundle.Issues = append(bundle.Issues, domain.IncidentIssue{
+			Scope: "node", Code: issueCode(err), Message: err.Error(),
+		})
+	} else {
+		bundle.Node = &detail
+		maxPods = detail.MaxPods
+		bundle.noteScope("Node state")
+		bundle.noteScope("Node conditions")
+		recordNodeConditions(ref, bundle.RootUID, detail, bundle)
+	}
+
+	pods, err := s.resources.NodePods(ctx, clusterID, ref.Name, maxPods)
+	if err != nil {
+		bundle.noteMissing("Pods on node")
+		bundle.Issues = append(bundle.Issues, domain.IncidentIssue{
+			Scope: "pods", Code: issueCode(err), Message: err.Error(),
+		})
+	} else {
+		bundle.NodePods = &pods
+		bundle.noteScope("Pods on node")
+		if len(pods.Agents) > 0 {
+			bundle.noteScope("Network agent pods")
+		}
+		s.collectStuckPodEvents(ctx, clusterID, pods.Stuck, bundle)
+	}
+
+	events, err := s.resources.NodeEvents(ctx, clusterID, ref.Name)
+	if err != nil {
+		bundle.noteMissing("Events")
+		bundle.Issues = append(bundle.Issues, domain.IncidentIssue{
+			Scope: "events", Code: issueCode(err), Message: err.Error(),
+		})
+		return
+	}
+	bundle.Events = events
+	bundle.EventsOK = true
+	bundle.noteScope("Events")
+	recordWarningEvidence(bundle, events)
+}
+
+func (s *Service) collectStuckPodEvents(ctx context.Context, clusterID string, stuck []domain.NodeStuckPod, bundle *EvidenceBundle) {
+	if len(stuck) == 0 {
+		return
+	}
+	sample := stuck
+	if len(sample) > stuckPodEventSample {
+		sample = sample[:stuckPodEventSample]
+	}
+	var failed bool
+	for _, pod := range sample {
+		events, err := s.resources.Events(ctx, clusterID, pod.Namespace, pod.Name)
+		if err != nil {
+			if !failed {
+				bundle.noteMissing("Pod events")
+				bundle.Issues = append(bundle.Issues, domain.IncidentIssue{
+					Scope: "pod-events", Code: issueCode(err), Message: err.Error(),
+				})
+				failed = true
+			}
+			continue
+		}
+		for _, event := range events {
+			if event.Type != "Warning" {
+				continue
+			}
+			bundle.PodEvents = append(bundle.PodEvents, event)
+		}
+	}
+	if len(bundle.PodEvents) > 0 {
+		bundle.noteScope("Pod events")
+		recordWarningEvidence(bundle, bundle.PodEvents)
+	}
+}
+
+func recordNodeConditions(ref domain.ResourceRef, uid string, detail domain.NodeDetail, bundle *EvidenceBundle) {
+	now := time.Now().UTC()
+	for _, condition := range detail.Conditions {
+		observed := now
+		if condition.Since != nil {
+			observed = condition.Since.UTC()
+		}
+		bundle.addEvidence(domain.IncidentEvidence{
+			ID:          "condition." + condition.Type,
+			SourceRef:   ref,
+			SourceUID:   uid,
+			FieldPath:   "condition." + condition.Type,
+			SafeExcerpt: truncate(fmt.Sprintf("%s=%s reason=%s %s", condition.Type, condition.Status, condition.Reason, condition.Message), 240),
+			ObservedAt:  observed,
+		})
+	}
+}
+
+func recordWarningEvidence(bundle *EvidenceBundle, events []domain.EventRow) {
+	for _, event := range events {
+		if event.Type != "Warning" {
+			continue
+		}
+		bundle.addEvidence(domain.IncidentEvidence{
+			ID:          "event." + event.UID,
+			SourceRef:   bundle.RootRef,
+			SourceUID:   bundle.RootUID,
+			EventUID:    event.UID,
+			FieldPath:   "event." + event.Reason,
+			SafeExcerpt: truncate(event.Message, 240),
+			ObservedAt:  event.LastSeen,
+		})
+	}
 }
 
 func (s *Service) collectWorkload(ctx context.Context, clusterID string, ref domain.ResourceRef, bundle *EvidenceBundle) {
@@ -150,20 +274,7 @@ func (s *Service) collectEvents(ctx context.Context, clusterID, namespace, name 
 	bundle.Events = events
 	bundle.EventsOK = true
 	bundle.noteScope("Events")
-	for _, event := range events {
-		if event.Type != "Warning" {
-			continue
-		}
-		bundle.addEvidence(domain.IncidentEvidence{
-			ID:          "event." + event.UID,
-			SourceRef:   bundle.RootRef,
-			SourceUID:   bundle.RootUID,
-			EventUID:    event.UID,
-			FieldPath:   "event." + event.Reason,
-			SafeExcerpt: truncate(event.Message, 240),
-			ObservedAt:  event.LastSeen,
-		})
-	}
+	recordWarningEvidence(bundle, events)
 }
 
 func recordContainerEvidence(ref domain.ResourceRef, uid string, detail domain.PodDetail, bundle *EvidenceBundle) {
@@ -182,7 +293,7 @@ func recordContainerEvidence(ref domain.ResourceRef, uid string, detail domain.P
 
 func supportedWorkload(kind domain.Kind) bool {
 	switch kind {
-	case domain.KindPod, domain.KindDeployment, domain.KindStatefulSet, domain.KindDaemonSet,
+	case domain.KindPod, domain.KindNode, domain.KindDeployment, domain.KindStatefulSet, domain.KindDaemonSet,
 		domain.KindJob, domain.KindPersistentVolumeClaim:
 		return true
 	default:

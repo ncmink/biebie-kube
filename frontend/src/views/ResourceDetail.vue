@@ -42,6 +42,7 @@ const isPod = computed(() => resourceKind.value === Kind.KindPod)
 const explainable = computed(() => {
   switch (resourceKind.value) {
     case Kind.KindPod:
+    case Kind.KindNode:
     case Kind.KindDeployment:
     case Kind.KindStatefulSet:
     case Kind.KindDaemonSet:

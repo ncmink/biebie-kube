@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"biebie-kube/internal/domain"
 )
@@ -176,22 +176,25 @@ func (s *Service) Events(ctx context.Context, clusterID, namespace string, invol
 
 	out := make([]domain.EventRow, 0, len(list.Items))
 	for _, event := range list.Items {
-		row := domain.EventRow{
-			UID:       string(event.UID),
-			Type:      event.Type,
-			Reason:    event.Reason,
-			Object:    event.InvolvedObject.Kind + "/" + event.InvolvedObject.Name,
-			Message:   event.Message,
-			Namespace: event.Namespace,
-			Count:     event.Count,
-			FirstSeen: event.FirstTimestamp.Time,
-			LastSeen:  lastSeen(event.LastTimestamp.Time, event.EventTime.Time, event.FirstTimestamp.Time),
-		}
-		out = append(out, row)
+		out = append(out, eventRow(event))
 	}
 
 	sort.SliceStable(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
 	return out, nil
+}
+
+func eventRow(event corev1.Event) domain.EventRow {
+	return domain.EventRow{
+		UID:       string(event.UID),
+		Type:      event.Type,
+		Reason:    event.Reason,
+		Object:    event.InvolvedObject.Kind + "/" + event.InvolvedObject.Name,
+		Message:   event.Message,
+		Namespace: event.Namespace,
+		Count:     event.Count,
+		FirstSeen: event.FirstTimestamp.Time,
+		LastSeen:  lastSeen(event.LastTimestamp.Time, event.EventTime.Time, event.FirstTimestamp.Time),
+	}
 }
 
 // lastSeen copes with the two event APIs.

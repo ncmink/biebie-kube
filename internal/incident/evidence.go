@@ -11,10 +11,15 @@ type EvidenceBundle struct {
 	RootRef domain.ResourceRef
 	RootUID string
 
-	Pod        *domain.PodDetail
-	Events     []domain.EventRow
-	EventsOK   bool
-	EventsErr  string
+	Pod       *domain.PodDetail
+	Node      *domain.NodeDetail
+	NodePods  *domain.NodePods
+	Events    []domain.EventRow
+	EventsOK  bool
+	EventsErr string
+	// PodEvents are warning events from a sample of pods stuck on a node.
+	// They are not the node's own events, which stay in Events.
+	PodEvents  []domain.EventRow
 	Related    []domain.RelatedGroup
 	Inspect    *domain.ResourceInspect
 	Properties map[string]string
@@ -51,7 +56,7 @@ func coverageFrom(bundle EvidenceBundle) domain.IncidentCoverage {
 	if len(bundle.Missing) > 0 {
 		state = domain.CoveragePartial
 	}
-	if bundle.Pod == nil && bundle.Inspect == nil {
+	if bundle.Pod == nil && bundle.Inspect == nil && bundle.Node == nil {
 		state = domain.CoverageUnknown
 	}
 	return domain.IncidentCoverage{

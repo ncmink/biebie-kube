@@ -36,13 +36,10 @@ func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev
 			unscheduled++
 			continue
 		}
+		if !countsTowardNode(pod) {
+			continue
+		}
 		nodeName := pod.Spec.NodeName
-		if nodeName == "" {
-			continue
-		}
-		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-			continue
-		}
 		entry, ok := byNode[nodeName]
 		if !ok {
 			continue
@@ -61,6 +58,14 @@ func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, unscheduled
+}
+
+// countsTowardNode reports whether a pod occupies a slot on its node, matching
+// the scheduler: assigned, and not finished.
+func countsTowardNode(pod corev1.Pod) bool {
+	return pod.Spec.NodeName != "" &&
+		pod.Status.Phase != corev1.PodSucceeded &&
+		pod.Status.Phase != corev1.PodFailed
 }
 
 // podResources returns the effective requests and limits for one pod, matching

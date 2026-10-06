@@ -2,6 +2,7 @@ package incident
 
 import (
 	"fmt"
+	"strings"
 
 	"biebie-kube/internal/domain"
 )
@@ -15,6 +16,9 @@ func Analyze(bundle EvidenceBundle) []domain.IncidentFinding {
 		if len(findings) == 0 && bundle.Pod.Status == "Succeeded" {
 			return findings
 		}
+	}
+	if bundle.Node != nil {
+		findings = append(findings, nodeRules(bundle)...)
 	}
 
 	findings = append(findings, eventRules(bundle)...)
@@ -90,7 +94,7 @@ func podRules(bundle EvidenceBundle) []domain.IncidentFinding {
 				Summary:         fmt.Sprintf("%s was OOMKilled", container.Name),
 				Explanation:     "The container was terminated after an out-of-memory condition was reported.",
 				ConfidenceClass: domain.IncidentConfidenceConfirmed,
-				ObservedFacts: factsForTermination(container),
+				ObservedFacts:   factsForTermination(container),
 				PossibleCauses: []string{
 					"Memory usage exceeded the configured limit.",
 					"A memory leak or traffic spike may have driven usage above the limit.",
@@ -134,12 +138,214 @@ func podRules(bundle EvidenceBundle) []domain.IncidentFinding {
 	return out
 }
 
-func eventRules(bundle EvidenceBundle) []domain.IncidentFinding {
-	if !bundle.EventsOK {
+func nodeRules(bundle EvidenceBundle) []domain.IncidentFinding {
+	if bundle.Node == nil {
 		return nil
 	}
 	var out []domain.IncidentFinding
-	for _, event := range bundle.Events {
+	ready := conditionByType(bundle.Node.Conditions, "Ready")
+	if ready != nil && (ready.Status == "False" || ready.Status == "Unknown") {
+		out = append(out, nodeNotReady(*ready))
+	}
+	if networkPluginFailing(bundle) {
+		out = append(out, networkPluginNotReady(bundle))
+	}
+	if finding, ok := networkResourceExhaustion(bundle); ok {
+		out = append(out, finding)
+	}
+	return out
+}
+
+func nodeNotReady(ready domain.Condition) domain.IncidentFinding {
+	return domain.IncidentFinding{
+		RuleID:          "node.not_ready",
+		Severity:        domain.SeverityCritical,
+		Summary:         "Node is not ready",
+		Explanation:     "The kubelet is not reporting this node as Ready, so the scheduler should stop placing new pods here.",
+		ConfidenceClass: domain.IncidentConfidenceConfirmed,
+		ObservedFacts: []string{
+			fmt.Sprintf("Ready=%s", ready.Status),
+			fmt.Sprintf("Reason: %s", ready.Reason),
+			truncate(ready.Message, 240),
+		},
+		EvidenceIDs: []string{"condition.Ready"},
+		NextSteps: []string{
+			"Read the Ready condition message",
+			"Inspect kubelet and container runtime logs on the node",
+		},
+	}
+}
+
+func networkPluginNotReady(bundle EvidenceBundle) domain.IncidentFinding {
+	facts := make([]string, 0, 4)
+	if ready := conditionByType(bundle.Node.Conditions, "Ready"); ready != nil {
+		facts = append(facts, fmt.Sprintf("Ready=%s reason=%s", ready.Status, ready.Reason))
+		if ready.Message != "" {
+			facts = append(facts, truncate(ready.Message, 240))
+		}
+	}
+	if unavailable := conditionByType(bundle.Node.Conditions, "NetworkUnavailable"); unavailable != nil && unavailable.Status == "True" {
+		facts = append(facts, fmt.Sprintf("NetworkUnavailable=True (%s)", unavailable.Reason))
+	}
+	if bundle.NodePods != nil {
+		for _, agent := range bundle.NodePods.Agents {
+			facts = append(facts, fmt.Sprintf("kube-system DaemonSet pod %s is not ready (%s)", agent.Name, agent.Phase))
+		}
+	}
+	return domain.IncidentFinding{
+		RuleID:          "node.network_plugin_not_ready",
+		Severity:        domain.SeverityCritical,
+		Summary:         "Node network plugin is not ready",
+		Explanation:     "The node's network plugin is not running, so pods on this node cannot get networking.",
+		ConfidenceClass: domain.IncidentConfidenceConfirmed,
+		ObservedFacts:   facts,
+		EvidenceIDs:     []string{"condition.Ready"},
+		NextSteps: []string{
+			"Inspect the network agent pod on this node and its init container logs",
+			"Check whether the same agent is healthy on other nodes",
+			"Cordon the node so new pods stop landing there",
+		},
+	}
+}
+
+// networkResourceExhaustion is a heuristic. Pod density is recorded when the
+// rule fires; it is never enough to fire the rule by itself.
+func networkResourceExhaustion(bundle EvidenceBundle) (domain.IncidentFinding, bool) {
+	if !networkPluginFailing(bundle) && !hasSandboxFailure(bundle) {
+		return domain.IncidentFinding{}, false
+	}
+	// Absent MemoryPressure is not pressure. Only True explains the
+	// allocation failure as ordinary node memory pressure.
+	if bundle.Node != nil && memoryPressureTrue(bundle.Node.Conditions) {
+		return domain.IncidentFinding{}, false
+	}
+	quotes := allocationQuotes(bundle)
+	if len(quotes) == 0 {
+		return domain.IncidentFinding{}, false
+	}
+
+	facts := append([]string{}, quotes...)
+	if bundle.NodePods != nil && bundle.NodePods.MaxPods > 0 {
+		used := bundle.NodePods.PodsUsed
+		max := bundle.NodePods.MaxPods
+		if float64(used)/float64(max) > 0.8 {
+			facts = append(facts, fmt.Sprintf("Pods on this node: %d/%d", used, max))
+		}
+	}
+	return domain.IncidentFinding{
+		RuleID:   "node.network_resource_exhaustion",
+		Severity: domain.SeverityWarning,
+		Summary:  "Network setup fails with allocation errors while the node has free memory",
+		Explanation: "The kernel refused to allocate network resources even though " +
+			"the node reports no memory pressure. This usually means a kernel or platform " +
+			"limit was reached, for example the conntrack table, or a per-container " +
+			"iptables quota on container-based hosts such as OpenVZ/Virtuozzo.",
+		ConfidenceClass: domain.IncidentConfidenceSupported,
+		ObservedFacts:   facts,
+		NextSteps: []string{
+			"Check kernel network limits on the node (conntrack usage, iptables rule count)",
+			"On container-based hosts, check the platform quota (e.g. /proc/user_beancounters, numiptent and failcnt)",
+			"Avoid restarting the network agent repeatedly; it fails the same way until the limit is raised or load is reduced",
+			"Reduce pods or Services on this node, or ask the platform to raise the limit",
+		},
+	}, true
+}
+
+func networkPluginFailing(bundle EvidenceBundle) bool {
+	if bundle.Node == nil {
+		return false
+	}
+	if ready := conditionByType(bundle.Node.Conditions, "Ready"); ready != nil {
+		text := ready.Reason + " " + ready.Message
+		if containsAny(text, "networkpluginnotready", "network plugin", "cni") {
+			return true
+		}
+	}
+	if unavailable := conditionByType(bundle.Node.Conditions, "NetworkUnavailable"); unavailable != nil && unavailable.Status == "True" {
+		return true
+	}
+	return false
+}
+
+func memoryPressureTrue(conditions []domain.Condition) bool {
+	pressure := conditionByType(conditions, "MemoryPressure")
+	return pressure != nil && pressure.Status == "True"
+}
+
+func hasSandboxFailure(bundle EvidenceBundle) bool {
+	for _, event := range relevantEvents(bundle) {
+		if event.Type == "Warning" && event.Reason == "FailedCreatePodSandBox" {
+			return true
+		}
+	}
+	return false
+}
+
+func allocationQuotes(bundle EvidenceBundle) []string {
+	var out []string
+	for _, event := range relevantEvents(bundle) {
+		if event.Reason != "FailedCreatePodSandBox" || !allocationFailure(event.Message) {
+			continue
+		}
+		out = append(out, truncate(event.Message, 240))
+	}
+	if bundle.NodePods == nil {
+		return out
+	}
+	for _, agent := range bundle.NodePods.Agents {
+		for _, container := range append(agent.InitContainers, agent.Containers...) {
+			if !allocationFailure(container.LastTerminationMessage) {
+				continue
+			}
+			out = append(out, fmt.Sprintf("%s: %s", agent.Name, truncate(container.LastTerminationMessage, 240)))
+		}
+	}
+	return out
+}
+
+func allocationFailure(text string) bool {
+	return containsAny(text,
+		"cannot allocate memory",
+		"memory allocation problem",
+		"no buffer space available",
+		"out of memory",
+	)
+}
+
+func containsAny(text string, phrases ...string) bool {
+	folded := strings.ToLower(text)
+	for _, phrase := range phrases {
+		if strings.Contains(folded, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func conditionByType(conditions []domain.Condition, kind string) *domain.Condition {
+	for i := range conditions {
+		if conditions[i].Type == kind {
+			return &conditions[i]
+		}
+	}
+	return nil
+}
+
+func relevantEvents(bundle EvidenceBundle) []domain.EventRow {
+	var events []domain.EventRow
+	if bundle.EventsOK {
+		events = append(events, bundle.Events...)
+	}
+	return append(events, bundle.PodEvents...)
+}
+
+func eventRules(bundle EvidenceBundle) []domain.IncidentFinding {
+	events := relevantEvents(bundle)
+	if len(events) == 0 {
+		return nil
+	}
+	var out []domain.IncidentFinding
+	for _, event := range events {
 		if event.Type != "Warning" {
 			continue
 		}
@@ -155,6 +361,22 @@ func eventRules(bundle EvidenceBundle) []domain.IncidentFinding {
 				ObservedFacts:   []string{fmt.Sprintf("Warning event: %s", event.Reason)},
 				EvidenceIDs:     []string{id},
 				NextSteps:       []string{"Review node capacity, taints, and pod constraints"},
+			})
+		case "FailedCreatePodSandBox":
+			id := "event." + event.UID
+			explanation := event.Message
+			if containsAny(event.Message, "network", "cni", "plugin") {
+				explanation = "The pod sandbox could not be created because network setup failed. " + event.Message
+			}
+			out = append(out, domain.IncidentFinding{
+				RuleID:          "event.pod_sandbox_failed",
+				Severity:        domain.SeverityCritical,
+				Summary:         "Pod sandbox creation failed",
+				Explanation:     explanation,
+				ConfidenceClass: domain.IncidentConfidenceSupported,
+				ObservedFacts:   []string{fmt.Sprintf("Warning event: %s", event.Reason)},
+				EvidenceIDs:     []string{id},
+				NextSteps:       []string{"Inspect the network agent pod on this node and its init container logs"},
 			})
 		case "FailedMount", "FailedAttachVolume":
 			id := "event." + event.UID
@@ -210,9 +432,9 @@ func scopesAsFacts(scopes []string) []string {
 
 func sortFindings(findings []domain.IncidentFinding) []domain.IncidentFinding {
 	rank := map[domain.FindingSeverity]int{
-		domain.SeverityCritical:      0,
-		domain.SeverityWarning:       1,
-		domain.SeverityInfo:          2,
+		domain.SeverityCritical: 0,
+		domain.SeverityWarning:  1,
+		domain.SeverityInfo:     2,
 	}
 	out := append([]domain.IncidentFinding(nil), findings...)
 	for i := 0; i < len(out); i++ {

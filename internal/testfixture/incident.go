@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
+	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
 )
 
@@ -16,10 +17,10 @@ import (
 // These fixtures intentionally avoid live clusters. They model restricted RBAC,
 // partial API groups and CRD enrichment gaps described in incident-workspace-spec.
 var DiscoveryBaseline = struct {
-	CoreAndApps []kube.APIResource
-	WidgetOnly  []kube.APIResource
-	PartialApps kube.DiscoveryResult
-	WidgetCRD   kube.CustomResource
+	CoreAndApps       []kube.APIResource
+	WidgetOnly        []kube.APIResource
+	PartialApps       kube.DiscoveryResult
+	WidgetCRD         kube.CustomResource
 	ForbiddenCRDError error
 }{
 	CoreAndApps: []kube.APIResource{
@@ -43,7 +44,7 @@ var DiscoveryBaseline = struct {
 	WidgetCRD: kube.CustomResource{
 		Group: "widgets.example.io", Version: "v1", Plural: "widgets", Kind: "Widget",
 		Namespaced: true,
-		Columns: []kube.PrinterColumn{{Name: "Phase", JSONPath: ".status.phase"}},
+		Columns:    []kube.PrinterColumn{{Name: "Phase", JSONPath: ".status.phase"}},
 	},
 	ForbiddenCRDError: errForbidden("customresourcedefinitions.apiextensions.k8s.io is forbidden"),
 }
@@ -92,6 +93,62 @@ func PodOOMKilled(name, namespace string) *corev1.Pod {
 				RestartCount: 2,
 			}},
 		},
+	}
+}
+
+// NodeNetworkNotReady is the worker from a shared-dev incident: Ready is false
+// because the network plugin has not initialised, and the node is not under
+// memory pressure.
+func NodeNetworkNotReady(name string) domain.NodeDetail {
+	return domain.NodeDetail{
+		Name:    name,
+		Ready:   false,
+		MaxPods: 110,
+		Conditions: []domain.Condition{
+			{
+				Type:    "Ready",
+				Status:  "False",
+				Reason:  "KubeletNotReady",
+				Message: "container runtime network not ready: NetworkReady=false reason:NetworkPluginNotReady message:Network plugin returns error: cni plugin not initialized",
+			},
+			{Type: "MemoryPressure", Status: "False", Reason: "KubeletHasSufficientMemory"},
+			{Type: "DiskPressure", Status: "False", Reason: "KubeletHasNoDiskPressure"},
+		},
+	}
+}
+
+// NodePodsWithUnreadyAgent is a not-ready kube-system DaemonSet pod on a node.
+//
+// agentName is whatever the cluster called the pod. Callers pass different
+// names to show the diagnosis does not depend on which network plugin that is.
+func NodePodsWithUnreadyAgent(agentName string, podsUsed, maxPods int) domain.NodePods {
+	return domain.NodePods{
+		PodsUsed: podsUsed,
+		MaxPods:  maxPods,
+		Agents: []domain.NodeAgentPod{{
+			Namespace: "kube-system",
+			Name:      agentName,
+			Phase:     "Pending",
+			InitContainers: []domain.NodeAgentContainer{{
+				Name:                   "install",
+				Init:                   true,
+				State:                  "CrashLoopBackOff",
+				LastTerminationReason:  "Error",
+				LastTerminationMessage: "iptables: Memory allocation problem.",
+			}},
+		}},
+	}
+}
+
+// SandboxAllocationEvent is a FailedCreatePodSandBox warning whose message is
+// an allocation failure rather than a normal plugin error.
+func SandboxAllocationEvent() domain.EventRow {
+	return domain.EventRow{
+		UID:     "sandbox-alloc",
+		Type:    "Warning",
+		Reason:  "FailedCreatePodSandBox",
+		Object:  "Pod/app",
+		Message: "Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox container: cannot allocate memory",
 	}
 }
 

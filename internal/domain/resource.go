@@ -433,8 +433,8 @@ type Counter struct {
 
 // ClusterMetrics is aggregate usage, present only when metrics-server answers.
 type ClusterMetrics struct {
-	CPUUsedMilli     int64 `json:"cpuUsedMilli"`
-	CPUCapacityMilli int64 `json:"cpuCapacityMilli"`
+	CPUUsedMilli        int64 `json:"cpuUsedMilli"`
+	CPUCapacityMilli    int64 `json:"cpuCapacityMilli"`
 	CPUAllocatableMilli int64 `json:"cpuAllocatableMilli"`
 
 	MemoryUsedBytes        int64 `json:"memoryUsedBytes"`
@@ -460,9 +460,69 @@ type NodeCapacity struct {
 	CPULimitMilli    int64 `json:"cpuLimitMilli"`
 	MemoryLimitBytes int64 `json:"memoryLimitBytes"`
 
-	CPUUsedMilli     int64 `json:"cpuUsedMilli,omitempty"`
-	MemoryUsedBytes  int64 `json:"memoryUsedBytes,omitempty"`
-	PodsUsed         int   `json:"podsUsed"`
+	CPUUsedMilli    int64 `json:"cpuUsedMilli,omitempty"`
+	MemoryUsedBytes int64 `json:"memoryUsedBytes,omitempty"`
+	PodsUsed        int   `json:"podsUsed"`
+}
+
+// NodeDetail is the typed view Explain Why reads for one node.
+//
+// It is not a Wails payload. The inspector still uses ResourceInspect; this
+// shape exists so incident rules can quote conditions without re-parsing YAML.
+type NodeDetail struct {
+	Name     string
+	Ready    bool
+	Cordoned bool
+	MaxPods  int
+
+	Conditions []Condition
+}
+
+// NodePods is a bounded summary of the pods assigned to one node.
+type NodePods struct {
+	PodsUsed int
+	MaxPods  int
+
+	// ByPhase counts every pod the list returned, including finished ones.
+	// PodsUsed is the scheduler's count and is smaller.
+	ByPhase map[string]int
+
+	Stuck  []NodeStuckPod
+	Agents []NodeAgentPod
+}
+
+// NodeStuckPod is a pod that has a node but still has no sandbox or containers.
+type NodeStuckPod struct {
+	Namespace string
+	Name      string
+	Phase     string
+	Reason    string
+}
+
+// NodeAgentPod is a kube-system DaemonSet pod on the node that is not ready.
+//
+// The name is whatever the cluster called it. Nothing here decides which
+// network plugin that name belongs to.
+type NodeAgentPod struct {
+	Namespace string
+	Name      string
+	Phase     string
+
+	Containers     []NodeAgentContainer
+	InitContainers []NodeAgentContainer
+}
+
+// NodeAgentContainer is one container of a not-ready kube-system DaemonSet pod.
+//
+// LastTerminationMessage is kept because a network agent's init container
+// often says why it died only on the previous termination, while the current
+// state is just CrashLoopBackOff.
+type NodeAgentContainer struct {
+	Name                   string
+	Init                   bool
+	State                  string
+	LastTerminationReason  string
+	LastTerminationMessage string
 }
 
 // SearchHit is one result of the global resource search.

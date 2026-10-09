@@ -17,6 +17,8 @@ const root = ref<HTMLElement | null>(null)
 const left = ref(props.x)
 const top = ref(props.y)
 const placed = ref(false)
+/** Focus target to restore when the menu closes. */
+let returnFocus: HTMLElement | null = null
 
 function close() {
   emit('close')
@@ -34,10 +36,21 @@ function rows(): HTMLButtonElement[] {
 
 /** Arrow keys move between rows, the way a native menu behaves. */
 function onKeydown(event: KeyboardEvent) {
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
-  event.preventDefault()
   const buttons = rows()
   if (buttons.length === 0) return
+
+  if (event.key === 'Home') {
+    event.preventDefault()
+    buttons[0].focus()
+    return
+  }
+  if (event.key === 'End') {
+    event.preventDefault()
+    buttons[buttons.length - 1].focus()
+    return
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+  event.preventDefault()
   const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
   const step = event.key === 'ArrowDown' ? 1 : -1
   buttons[(current + step + buttons.length) % buttons.length].focus()
@@ -48,6 +61,9 @@ function onWindowKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
+  const active = document.activeElement
+  if (active instanceof HTMLElement) returnFocus = active
+
   // The menu opens at the pointer, then folds back inside the window so a
   // right-click near an edge does not push rows out of reach.
   const el = root.value
@@ -63,6 +79,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
+  returnFocus?.focus()
 })
 </script>
 

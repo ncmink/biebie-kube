@@ -194,6 +194,19 @@ export const useClusterStore = defineStore('clusters', () => {
     sessions.value[clusterId] = await api.disconnectCluster(clusterId)
   }
 
+  /** resume probes open connected clusters after sleep or network recovery. */
+  async function resumeOpen() {
+    for (const id of openIds.value) {
+      const session = sessions.value[id]
+      if (session?.state !== ClusterState.ClusterConnected) continue
+      try {
+        sessions.value[id] = await api.resumeCluster(id)
+      } catch {
+        // Session may still update through cluster:session events.
+      }
+    }
+  }
+
   /** open puts a cluster in a tab and connects it if it is not already up. */
   async function open(clusterId: string) {
     if (!openIds.value.includes(clusterId)) {
@@ -380,6 +393,7 @@ export const useClusterStore = defineStore('clusters', () => {
     remove,
     connect,
     disconnect,
+    resumeOpen,
     open,
     close,
     setNamespace,

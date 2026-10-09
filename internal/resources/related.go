@@ -124,6 +124,15 @@ func (s *Service) Related(ctx context.Context, clusterID string, ref domain.Reso
 		if len(group.Rows) > 0 {
 			groups = append(groups, group)
 		}
+
+	case domain.KindPriorityClass:
+		group, err := s.podsWithPriorityClass(ctx, clusterID, obj.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if len(group.Rows) > 0 {
+			groups = append(groups, group)
+		}
 	}
 
 	return groups, nil
@@ -321,6 +330,66 @@ func (s *Service) podsOnNode(ctx context.Context, clusterID, node string) (domai
 	group := s.renderPods(ctx, clusterID, info, pods)
 	group.Namespaced = true
 	group.Truncated = group.Truncated || list.GetContinue() != ""
+	return group, nil
+}
+
+// podsWithPriorityClass lists pods that reference a priority class name.
+//
+// The API has no field selector for spec.priorityClassName, so the read is a
+// bounded cluster-wide scan with client-side filtering.
+func (s *Service) podsWithPriorityClass(ctx context.Context, clusterID, className string) (domain.RelatedGroup, error) {
+	info, ok := s.clusters.LookupKind(clusterID, domain.KindPod)
+	if !ok {
+		return domain.RelatedGroup{}, fmt.Errorf("unknown resource type %q", domain.KindPod)
+	}
+	client, err := s.clusters.Client(clusterID)
+	if err != nil {
+		return domain.RelatedGroup{}, err
+	}
+
+	gvr := kube.GVRFor(info.Group, info.Version, info.Resource)
+	var matched []*unstructured.Unstructured
+	truncated := false
+	continueToken := ""
+
+	for len(matched) < relatedBudget {
+		list, err := client.Dynamic.Resource(gvr).List(ctx, metav1.ListOptions{
+			Limit:    int64(relatedBudget),
+			Continue: continueToken,
+		})
+		if err != nil {
+			return domain.RelatedGroup{}, fmt.Errorf("list pods for priority class %s: %w", className, err)
+		}
+
+		for i := range list.Items {
+			pod := &list.Items[i]
+			name, _, _ := unstructured.NestedString(pod.Object, "spec", "priorityClassName")
+			if name != className {
+				continue
+			}
+			matched = append(matched, pod)
+			if len(matched) >= relatedBudget {
+				truncated = true
+				break
+			}
+		}
+
+		continueToken = list.GetContinue()
+		if continueToken == "" || truncated {
+			if continueToken != "" {
+				truncated = true
+			}
+			break
+		}
+	}
+
+	if len(matched) == 0 {
+		return domain.RelatedGroup{}, nil
+	}
+
+	group := s.renderPods(ctx, clusterID, info, matched)
+	group.Namespaced = true
+	group.Truncated = group.Truncated || truncated
 	return group, nil
 }
 

@@ -7,6 +7,7 @@ import NavigationSwitchers from '@/components/common/NavigationSwitchers.vue'
 import ShortcutCheatSheet from '@/components/common/ShortcutCheatSheet.vue'
 import TitleBar from '@/components/common/TitleBar.vue'
 import { useGlobalShortcuts } from '@/composables/useGlobalShortcuts'
+import { useResume } from '@/composables/useResume'
 import NoticeBar from '@/components/common/NoticeBar.vue'
 import { api, events, on } from '@/api'
 import { useClusterStore } from '@/stores/clusters'
@@ -21,6 +22,14 @@ const ui = useUIStore()
 const router = useRouter()
 
 useGlobalShortcuts()
+
+useResume(() => {
+  void (async () => {
+    await clusters.load()
+    await clusters.resumeOpen()
+    if (resources.current) await resources.reload()
+  })()
+})
 
 onMounted(async () => {
   ui.apply()

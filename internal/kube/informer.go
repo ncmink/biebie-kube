@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -114,6 +115,9 @@ func (w *Watch) Get(key string) (runtime.Object, bool) {
 // Informers are keyed by resource type and namespace, so switching namespaces
 // does not tear down and rebuild the ones already warm, and closing a cluster
 // stops all of its watches at once.
+// AuthFailureCallback is invoked when watches must stop because credentials died.
+type AuthFailureCallback func(gvr schema.GroupVersionResource, err error)
+
 type WatchHub struct {
 	client dynamic.Interface
 
@@ -123,6 +127,10 @@ type WatchHub struct {
 
 	// notify is called, debounced, when a watched resource type changes.
 	notify func(Change)
+
+	onAuthFailure     AuthFailureCallback
+	authFailureOnce   sync.Once
+	forbiddenAttempts map[watchKey]int
 
 	pending map[watchKey]*pendingChange
 
@@ -151,16 +159,44 @@ type pendingChange struct {
 }
 
 // NewWatchHub creates a hub for one cluster.
-func NewWatchHub(client dynamic.Interface, notify func(Change)) *WatchHub {
+func NewWatchHub(client dynamic.Interface, notify func(Change), onAuthFailure AuthFailureCallback) *WatchHub {
 	hub := &WatchHub{
-		client:  client,
-		watches: make(map[watchKey]*entry),
-		pending: make(map[watchKey]*pendingChange),
-		notify:  notify,
-		sweep:   make(chan struct{}),
+		client:            client,
+		watches:           make(map[watchKey]*entry),
+		pending:           make(map[watchKey]*pendingChange),
+		notify:            notify,
+		onAuthFailure:     onAuthFailure,
+		forbiddenAttempts: make(map[watchKey]int),
+		sweep:             make(chan struct{}),
 	}
 	go hub.sweepIdle()
 	return hub
+}
+
+func (h *WatchHub) reportAuthFailure(gvr schema.GroupVersionResource, err error) {
+	if h.onAuthFailure == nil {
+		return
+	}
+	h.authFailureOnce.Do(func() {
+		h.onAuthFailure(gvr, err)
+	})
+}
+
+func (h *WatchHub) handleWatchError(key watchKey, gvr schema.GroupVersionResource, err error) {
+	if apierrors.IsUnauthorized(err) {
+		h.reportAuthFailure(gvr, err)
+		return
+	}
+	if !apierrors.IsForbidden(err) {
+		return
+	}
+	h.mu.Lock()
+	h.forbiddenAttempts[key]++
+	attempts := h.forbiddenAttempts[key]
+	h.mu.Unlock()
+	if attempts >= 2 {
+		h.reportAuthFailure(gvr, err)
+	}
 }
 
 // Ensure starts a watch if one is not already running, and returns it.
@@ -233,6 +269,9 @@ func (h *WatchHub) Ensure(gvr schema.GroupVersionResource, namespace, labelSelec
 	// A handler can only fail to register on an already-stopped informer,
 	// which the hub's own locking rules out here.
 	_, _ = watch.informer.AddEventHandler(handler)
+	_ = watch.informer.SetWatchErrorHandler(func(_ *cache.Reflector, err error) {
+		h.handleWatchError(key, gvr, err)
+	})
 
 	go watch.informer.Run(watch.stop)
 

@@ -140,6 +140,12 @@ func NewCore() (*Core, error) {
 	core.terminals = terminal.NewService(core.clusters, events)
 	core.forwards = portforward.NewService(core.clusters, events)
 
+	core.clusters.OnAuthFailure(func(clusterID string) {
+		core.forwards.StopCluster(clusterID)
+		core.terminals.CloseCluster(clusterID)
+		core.resources.Forget(clusterID)
+	})
+
 	core.policy = policy.NewService(
 		clusters,
 		core.clusters,

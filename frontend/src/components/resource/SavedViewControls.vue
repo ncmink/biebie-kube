@@ -150,6 +150,7 @@ async function removeView(view: SavedView) {
     <button
       type="button"
       class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
+      aria-haspopup="menu"
       :aria-expanded="menuOpen"
       @click="menuOpen = !menuOpen"
     >

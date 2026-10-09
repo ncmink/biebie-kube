@@ -9,10 +9,14 @@ import (
 
 	bctx "github.com/ncmink/biebie-protocol/context"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"biebie-kube/internal/domain"
 	"biebie-kube/internal/kube"
 )
+
+// resumeProbeTimeout bounds the API check after sleep or network recovery.
+const resumeProbeTimeout = 5 * time.Second
 
 // AccessChecker is how the lifecycle asks Biebie Access whether a customer
 // network is up.
@@ -65,6 +69,9 @@ type ResourceChange struct {
 // like, so the rendering layer registers here rather than the manager reaching
 // into it.
 type ResourceSink func(clusterID string, change kube.Change)
+
+// AuthFailureHook runs when watches report expired or rejected credentials.
+type AuthFailureHook func(clusterID string)
 
 // session is one cluster's live state.
 type session struct {
@@ -126,7 +133,8 @@ type Manager struct {
 	// which double-clicking Connect would otherwise cause.
 	connecting map[string]struct{}
 
-	sink ResourceSink
+	sink        ResourceSink
+	authFailure AuthFailureHook
 }
 
 // NewManager wires the lifecycle.
@@ -152,6 +160,13 @@ func NewManager(
 func (m *Manager) OnResources(sink ResourceSink) {
 	m.mu.Lock()
 	m.sink = sink
+	m.mu.Unlock()
+}
+
+// OnAuthFailure registers cleanup when a session is torn down for auth errors.
+func (m *Manager) OnAuthFailure(hook AuthFailureHook) {
+	m.mu.Lock()
+	m.authFailure = hook
 	m.mu.Unlock()
 }
 
@@ -514,6 +529,8 @@ func (m *Manager) Connect(ctx context.Context, clusterID string) (domain.Session
 
 	hub := kube.NewWatchHub(client.StreamDynamic, func(change kube.Change) {
 		m.notifyResources(clusterID, change)
+	}, func(_ schema.GroupVersionResource, _ error) {
+		m.SuspendForAuthFailure(clusterID)
 	})
 
 	now := time.Now()
@@ -776,6 +793,92 @@ func (m *Manager) SuspendForAccessDown(clusterID string) {
 		AccessProfileID: cluster.Access.ProfileID,
 	}
 	m.transition(cluster, domain.ClusterWaitingAccess, diag, diag.Summary)
+}
+
+// SuspendForAuthFailure tears down a connected session whose watches were
+// rejected, and leaves the cluster ready to reconnect with fresh credentials.
+func (m *Manager) SuspendForAuthFailure(clusterID string) {
+	m.mu.Lock()
+	s, ok := m.sessions[clusterID]
+	if !ok || s.state != domain.ClusterConnected {
+		m.mu.Unlock()
+		return
+	}
+	if s.hub != nil {
+		s.hub.Close()
+	}
+	if s.client != nil {
+		s.client.Close()
+	}
+	cluster := s.cluster
+	delete(m.sessions, clusterID)
+	hook := m.authFailure
+	m.mu.Unlock()
+
+	if hook != nil {
+		hook(clusterID)
+	}
+
+	detail := "The cluster stopped accepting this session. Reconnect to refresh credentials."
+	diag := &domain.Diagnosis{
+		Kind:    domain.FailureUnauthorized,
+		Summary: "Session expired — reconnect",
+		Detail:  detail,
+	}
+	m.transition(cluster, domain.ClusterUnauthorized, diag, diag.Summary)
+}
+
+// Resume probes a connected session after the machine slept or the network
+// returned. A failed probe tears the session down so the ordinary reconnect
+// path can run.
+func (m *Manager) Resume(ctx context.Context, clusterID string) domain.Session {
+	m.mu.RLock()
+	s, ok := m.sessions[clusterID]
+	if !ok || s.state != domain.ClusterConnected || s.client == nil {
+		m.mu.RUnlock()
+		return m.Session(clusterID)
+	}
+	client := s.client
+	cluster := s.cluster
+	m.mu.RUnlock()
+
+	probeCtx, cancel := context.WithTimeout(ctx, resumeProbeTimeout)
+	defer cancel()
+	_, err := client.FetchServerVersion(probeCtx)
+	if err == nil {
+		return m.Session(clusterID)
+	}
+
+	m.teardownConnectedAfterProbeFailure(clusterID, cluster, err)
+	return m.Session(clusterID)
+}
+
+func (m *Manager) teardownConnectedAfterProbeFailure(clusterID string, cluster domain.Cluster, err error) {
+	if err == nil {
+		return
+	}
+	m.mu.Lock()
+	s, ok := m.sessions[clusterID]
+	if !ok || s.state != domain.ClusterConnected {
+		m.mu.Unlock()
+		return
+	}
+	if s.hub != nil {
+		s.hub.Close()
+	}
+	if s.client != nil {
+		s.client.Close()
+	}
+	delete(m.sessions, clusterID)
+	m.mu.Unlock()
+
+	kind, summary := classify(err)
+	diag := &domain.Diagnosis{
+		Kind:    kind,
+		Summary: summary,
+		Detail:  err.Error(),
+	}
+	m.transition(cluster, stateFor(kind), diag, summary)
 }
 
 // RetryWaiting reconnects clusters that were only waiting on a customer

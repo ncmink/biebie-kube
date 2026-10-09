@@ -53,6 +53,7 @@ export const api = {
   setClusterArchived: ClusterService.SetClusterArchived,
 
   connectCluster: ClusterService.ConnectCluster,
+  resumeCluster: ClusterService.ResumeCluster,
   disconnectCluster: ClusterService.DisconnectCluster,
   listSessions: list(ClusterService.ListSessions),
   getSession: ClusterService.GetSession,

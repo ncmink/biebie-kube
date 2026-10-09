@@ -130,6 +130,11 @@ func (s *ClusterService) ConnectCluster(ctx context.Context, clusterID string) (
 	return session, describe(err)
 }
 
+// ResumeCluster probes a connected session after sleep or network recovery.
+func (s *ClusterService) ResumeCluster(ctx context.Context, clusterID string) domain.Session {
+	return s.core.clusters.Resume(ctx, clusterID)
+}
+
 // DisconnectCluster ends a session and everything hanging off it.
 func (s *ClusterService) DisconnectCluster(clusterID string) domain.Session {
 	s.core.forwards.StopCluster(clusterID)

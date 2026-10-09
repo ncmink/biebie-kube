@@ -452,6 +452,13 @@ export const useResourceStore = defineStore('resources', () => {
     return true
   }
 
+  /** reload refreshes the table in view without clearing rows first. */
+  async function reload() {
+    const view = current.value
+    if (!view) return false
+    return load(view.clusterId, view.kind, view.namespace, true)
+  }
+
   return {
     rows,
     columns,
@@ -478,6 +485,7 @@ export const useResourceStore = defineStore('resources', () => {
     current,
     complete,
     load,
+    reload,
     more,
     setFilter,
     setQueryMode,

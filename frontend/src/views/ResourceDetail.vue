@@ -11,7 +11,7 @@ import PortForwardDialog from '@/components/workload/PortForwardDialog.vue'
 import { api, message } from '@/api'
 import { asKind, singularTitle } from '@/composables/kind'
 import { EnvironmentKind, Kind } from '@/types'
-import type { ResourceRef } from '@/types'
+import type { ContainerPort, PodDetail, ResourceRef } from '@/types'
 
 // Monaco and xterm are each larger than the rest of the application together.
 // Loading them with the tab that needs them keeps opening a pod instant for the
@@ -72,13 +72,19 @@ const heading = computed(() => {
 const tab = ref(tabs.value[0])
 const deleting = ref(false)
 const forwarding = ref(false)
+const podPorts = ref<ContainerPort[]>([])
 
 watch(
-  () => [props.kind, props.name],
+  () => [props.kind, props.namespace, props.name],
   () => {
     tab.value = tabs.value[0]
+    podPorts.value = []
   },
 )
+
+function onPodLoaded(detail: PodDetail) {
+  podPorts.value = detail.ports ?? []
+}
 
 // A deep link can open before the catalogue has arrived, and for a custom
 // resource the tabs only come into existence with it. Without this the page
@@ -157,6 +163,7 @@ async function remove() {
         :cluster-id="clusterId"
         :namespace="realNamespace"
         :name="name"
+        @loaded="onPodLoaded"
       />
       <LogViewer
         v-else-if="tab === 'Logs'"
@@ -211,6 +218,7 @@ async function remove() {
       :cluster-id="clusterId"
       :namespace="realNamespace"
       :pod="name"
+      :ports="podPorts"
       @close="forwarding = false"
     />
   </div>

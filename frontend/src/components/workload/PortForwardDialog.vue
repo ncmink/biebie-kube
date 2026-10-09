@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { message } from '@/api'
 import { usePortForwardStore } from '@/stores/sessions'
 import { useUIStore } from '@/stores/ui'
+import type { ContainerPort } from '@/types'
 
-const props = defineProps<{ open: boolean; clusterId: string; namespace: string; pod: string }>()
+const props = defineProps<{
+  open: boolean
+  clusterId: string
+  namespace: string
+  pod: string
+  ports?: ContainerPort[]
+}>()
 const emit = defineEmits<{ close: [] }>()
 
 const forwards = usePortForwardStore()
@@ -16,15 +23,37 @@ const localPort = ref<number | null>(null)
 const busy = ref(false)
 const error = ref('')
 
+// An unset protocol is TCP. UDP cannot be forwarded, so it is not offered.
+function isTcp(port: ContainerPort): boolean {
+  return (port.protocol || 'TCP').toUpperCase() === 'TCP'
+}
+
+const suggestions = computed(() => (props.ports ?? []).filter(isTcp))
+
+function onlyTcpPort(): number | null {
+  return suggestions.value.length === 1 ? suggestions.value[0].port : null
+}
+
 watch(
   () => props.open,
   (open) => {
     if (!open) return
-    remotePort.value = null
+    remotePort.value = onlyTcpPort()
     localPort.value = null
     error.value = ''
   },
 )
+
+// The overview may still be loading when the dialog opens. Fill the single
+// declared port once it arrives, without overwriting a port the user typed.
+watch(suggestions, () => {
+  if (!props.open || remotePort.value) return
+  remotePort.value = onlyTcpPort()
+})
+
+function pick(port: number) {
+  remotePort.value = port
+}
 
 async function start() {
   if (!remotePort.value) {
@@ -62,6 +91,23 @@ async function start() {
     <div class="w-full max-w-sm rounded-2xl border border-line bg-surface-2 p-5">
       <h2 class="text-sm font-semibold text-ink">Port forward</h2>
       <p class="mt-1 truncate text-xs text-ink-muted">{{ namespace }} / {{ pod }}</p>
+
+      <div v-if="suggestions.length" class="mt-4 flex flex-wrap gap-1.5">
+        <button
+          v-for="(port, index) in suggestions"
+          :key="`${port.name ?? ''}-${port.port}-${index}`"
+          type="button"
+          class="rounded-md border px-2 py-0.5 font-mono text-[11px]"
+          :class="
+            remotePort === port.port
+              ? 'border-brand bg-brand/15 text-ink'
+              : 'border-line text-ink-muted hover:text-ink'
+          "
+          @click="pick(port.port)"
+        >
+          {{ port.name ? `${port.name} ` : '' }}{{ port.port }}
+        </button>
+      </div>
 
       <div class="mt-4 grid grid-cols-2 gap-3">
         <label class="block">

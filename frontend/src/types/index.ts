@@ -74,6 +74,7 @@ export type {
   Condition,
   ContainerInfo,
   ContainerPort,
+  ContainerProbe,
   Counter,
   CreateAvailability,
   CreatedResource,
@@ -91,6 +92,7 @@ export type {
   EditFreshness,
   EditSession,
   EvidenceFact,
+  EnvVar,
   EventRow,
   GitAccess,
   GitCheck,
@@ -118,6 +120,7 @@ export type {
   StateComparison,
   StateDifference,
   PodDetail,
+  PodVolume,
   PortForwardRequest,
   PortForwardSession,
   Probe,
@@ -140,6 +143,7 @@ export type {
   TerminalRequest,
   TerminalSession,
   ToolStatus,
+  VolumeMount,
 } from '@bindings/biebie-kube/internal/domain/models'
 
 export type { AuthoringSession } from '@bindings/biebie-kube/models'

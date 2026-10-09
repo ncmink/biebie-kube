@@ -7,6 +7,7 @@ import EventList from '@/components/resource/EventList.vue'
 import GitOpsPanel from '@/components/resource/GitOpsPanel.vue'
 import IncidentPanel from '@/components/resource/IncidentPanel.vue'
 import RelatedGroups from '@/components/resource/RelatedGroups.vue'
+import PodDetails from '@/components/workload/PodDetails.vue'
 import { api, message } from '@/api'
 import { actionsFor } from '@/composables/actions'
 import { agoClock } from '@/composables/format'
@@ -243,13 +244,21 @@ watch(
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <p v-if="error" class="rounded-xl border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
+      <p v-if="error && !isPod" class="rounded-xl border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
         {{ error }}
       </p>
-      <p v-else-if="loading" class="text-xs text-ink-muted">Loading…</p>
+      <p v-else-if="loading && !isPod" class="text-xs text-ink-muted">Loading…</p>
 
       <template v-else>
-        <section>
+        <PodDetails
+          v-if="isPod"
+          :cluster-id="clusterId"
+          :namespace="row.namespace ?? ''"
+          :name="row.name"
+          :revision="revision"
+        />
+
+        <section v-else>
           <h2 class="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
             Properties
           </h2>
@@ -356,6 +365,7 @@ watch(
                 namespace: row.namespace || '_',
                 name: row.name,
               },
+              query: { tab: 'Logs' },
             })
           "
         >

@@ -333,18 +333,47 @@ type ContainerInfo struct {
 
 	// Init marks init containers, whose logs are read differently.
 	Init bool `json:"init"`
+
+	// The fields below are the container card on the pod detail page. They are
+	// optional because the log and terminal selectors reuse this type and only
+	// need a name.
+	Ports   []ContainerPort `json:"ports,omitempty"`
+	Env     []EnvVar        `json:"env,omitempty"`
+	EnvFrom []string        `json:"envFrom,omitempty"`
+	Mounts  []VolumeMount   `json:"mounts,omitempty"`
+	Command []string        `json:"command,omitempty"`
+	Args    []string        `json:"args,omitempty"`
+
+	Liveness  *ContainerProbe `json:"liveness,omitempty"`
+	Readiness *ContainerProbe `json:"readiness,omitempty"`
+	Startup   *ContainerProbe `json:"startup,omitempty"`
+
+	Requests map[string]string `json:"requests,omitempty"`
+	Limits   map[string]string `json:"limits,omitempty"`
+
+	StartedAt      *time.Time `json:"startedAt,omitempty"`
+	LastStartedAt  *time.Time `json:"lastStartedAt,omitempty"`
+	LastFinishedAt *time.Time `json:"lastFinishedAt,omitempty"`
 }
 
-// PodDetail is the overview tab of a pod.
+// PodDetail is the scrolling detail page of a pod.
 type PodDetail struct {
 	Ref ResourceRef `json:"ref"`
 
-	Status   string `json:"status"`
-	Health   Health `json:"health"`
-	Node     string `json:"node"`
-	PodIP    string `json:"podIp"`
-	HostIP   string `json:"hostIp"`
-	QOSClass string `json:"qosClass"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	Status   string   `json:"status"`
+	Health   Health   `json:"health"`
+	Node     string   `json:"node"`
+	PodIP    string   `json:"podIp"`
+	PodIPs   []string `json:"podIps,omitempty"`
+	HostIP   string   `json:"hostIp"`
+	QOSClass string   `json:"qosClass"`
+
+	ServiceAccount string `json:"serviceAccount,omitempty"`
+
+	// ControlledBy is the controller owner, such as "ReplicaSet grafana-abc".
+	ControlledBy string `json:"controlledBy,omitempty"`
 
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 
@@ -354,8 +383,9 @@ type PodDetail struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 
-	Volumes    []string    `json:"volumes,omitempty"`
-	Conditions []Condition `json:"conditions,omitempty"`
+	Volumes     []PodVolume `json:"volumes,omitempty"`
+	Conditions  []Condition `json:"conditions,omitempty"`
+	Tolerations []string    `json:"tolerations,omitempty"`
 
 	// Ports are the container ports, offered as port-forward suggestions.
 	Ports []ContainerPort `json:"ports,omitempty"`
@@ -375,6 +405,43 @@ type ContainerPort struct {
 	Name     string `json:"name,omitempty"`
 	Port     int32  `json:"port"`
 	Protocol string `json:"protocol"`
+}
+
+// PodVolume is one volume the pod mounts, named the way an inspector lists it.
+type PodVolume struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// EnvVar is one environment entry. From describes valueFrom when Value is empty,
+// for example "secret/grafana:admin-password" or "field metadata.name".
+type EnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+	From  string `json:"from,omitempty"`
+}
+
+// VolumeMount is where a pod volume appears inside a container.
+type VolumeMount struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"readOnly,omitempty"`
+	SubPath  string `json:"subPath,omitempty"`
+}
+
+// ContainerProbe is a liveness, readiness or startup probe.
+//
+// Kind is http-get, tcp-socket, exec or grpc. Target is the address or command
+// the probe hits, such as "http://:3000/api/health".
+type ContainerProbe struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target,omitempty"`
+
+	InitialDelay     int32 `json:"initialDelay,omitempty"`
+	Timeout          int32 `json:"timeout,omitempty"`
+	Period           int32 `json:"period,omitempty"`
+	SuccessThreshold int32 `json:"successThreshold,omitempty"`
+	FailureThreshold int32 `json:"failureThreshold,omitempty"`
 }
 
 // EventRow is one line of the event viewer.

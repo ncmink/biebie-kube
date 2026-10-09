@@ -1,21 +1,23 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import StateDot from '@/components/common/StateDot.vue'
 import EventList from '@/components/resource/EventList.vue'
 import IncidentPanel from '@/components/resource/IncidentPanel.vue'
 import LogViewer from '@/components/logs/LogViewer.vue'
-import PodOverview from '@/components/workload/PodOverview.vue'
+import PodDetails from '@/components/workload/PodDetails.vue'
 import PortForwardDialog from '@/components/workload/PortForwardDialog.vue'
 import { api, message } from '@/api'
+import { age } from '@/composables/format'
 import { asKind, singularTitle } from '@/composables/kind'
-import { EnvironmentKind, Kind } from '@/types'
+import { EnvironmentKind, Health, Kind } from '@/types'
 import type { ContainerPort, PodDetail, ResourceRef } from '@/types'
 
 // Monaco and xterm are each larger than the rest of the application together.
 // Loading them with the tab that needs them keeps opening a pod instant for the
-// common case, which is reading its overview or its logs.
+// common case, which is reading its overview or logs.
 const PodTerminal = defineAsyncComponent(() => import('@/components/terminal/PodTerminal.vue'))
 const YamlEditor = defineAsyncComponent(() => import('@/components/yaml/YamlEditor.vue'))
 import { useClusterStore } from '@/stores/clusters'
@@ -26,6 +28,7 @@ const props = defineProps<{ clusterId: string; kind: string; namespace: string; 
 const clusters = useClusterStore()
 const ui = useUIStore()
 const router = useRouter()
+const route = useRoute()
 
 // "_" stands in for "no namespace" in the route, since a cluster-scoped object
 // still needs a path segment.
@@ -64,33 +67,50 @@ const tabs = computed(() => {
 // The catalogue holds the word the engineer wrote in their own manifests, which
 // beats trimming an "s" off a route segment — a custom kind's segment is
 // "applications.argoproj.io" and has no "s" to trim.
-const heading = computed(() => {
+const headingPlural = computed(() => {
   const entry = catalogue.value.find((item) => item.kind === props.kind)
-  return singularTitle(entry?.title ?? props.kind)
+  return entry?.title ?? props.kind
 })
+const heading = computed(() => singularTitle(headingPlural.value))
 
-const tab = ref(tabs.value[0])
+function pickTab(): string {
+  const requested = typeof route.query.tab === 'string' ? route.query.tab : ''
+  if (requested && tabs.value.includes(requested)) {
+    return requested
+  }
+  return tabs.value[0] ?? ''
+}
+
+const tab = ref(pickTab())
 const deleting = ref(false)
 const forwarding = ref(false)
-const podPorts = ref<ContainerPort[]>([])
+const podDetail = ref<PodDetail | null>(null)
+const podPorts = computed<ContainerPort[]>(() => podDetail.value?.ports ?? [])
 
 watch(
-  () => [props.kind, props.namespace, props.name],
+  () => [props.clusterId, props.kind, props.namespace, props.name],
   () => {
-    tab.value = tabs.value[0]
-    podPorts.value = []
+    tab.value = pickTab()
+    void loadPod()
   },
 )
 
-function onPodLoaded(detail: PodDetail) {
-  podPorts.value = detail.ports ?? []
-}
+watch(
+  () => route.query.tab,
+  (queryTab) => {
+    if (typeof queryTab === 'string' && tabs.value.includes(queryTab)) {
+      tab.value = queryTab
+    }
+  },
+)
 
 // A deep link can open before the catalogue has arrived, and for a custom
 // resource the tabs only come into existence with it. Without this the page
 // would hold the empty selection it started with and render nothing.
 watch(tabs, (available) => {
-  if (!tab.value || !available.includes(tab.value)) tab.value = available[0]
+  if (!tab.value || !available.includes(tab.value)) {
+    tab.value = pickTab()
+  }
 })
 
 const ref_ = computed<ResourceRef | undefined>(() =>
@@ -98,6 +118,20 @@ const ref_ = computed<ResourceRef | undefined>(() =>
     ? { kind: resourceKind.value, namespace: realNamespace.value, name: props.name }
     : undefined,
 )
+
+async function loadPod() {
+  if (!isPod.value) {
+    podDetail.value = null
+    return
+  }
+  try {
+    podDetail.value = await api.podDetail(props.clusterId, realNamespace.value, props.name)
+  } catch {
+    podDetail.value = null
+  }
+}
+
+onMounted(() => void loadPod())
 
 async function remove() {
   deleting.value = false
@@ -114,57 +148,150 @@ async function remove() {
 
 <template>
   <div class="flex h-full min-h-0 flex-col">
-    <header class="shrink-0 border-b border-line px-6 py-3">
-      <div class="flex items-center gap-3">
-        <button
-          class="text-xs text-ink-faint hover:text-ink"
-          @click="router.push({ name: 'resources', params: { clusterId, kind } })"
-        >
-          ← Back
-        </button>
-        <h1 class="truncate text-sm font-semibold text-ink">{{ name }}</h1>
-        <span v-if="realNamespace" class="truncate font-mono text-xs text-ink-faint">
-          {{ realNamespace }}
-        </span>
+    <header class="shrink-0 border-b border-line bg-surface-1/40 px-6 pt-3.5 backdrop-blur">
+      <!-- Top line: Breadcrumb + Action buttons -->
+      <div class="flex items-center justify-between gap-4">
+        <nav class="flex items-center gap-1.5 text-xs text-ink-faint">
+          <button
+            class="inline-flex items-center gap-1 font-medium text-ink-muted transition-colors hover:text-ink"
+            @click="router.push({ name: 'resources', params: { clusterId, kind } })"
+          >
+            <svg viewBox="0 0 16 16" class="size-3.5" fill="none" aria-hidden="true">
+              <path
+                d="M10 3.5L5.5 8 10 12.5"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>{{ headingPlural }}</span>
+          </button>
 
-        <div class="ml-auto flex gap-2">
+          <span class="text-line-strong">/</span>
+
+          <span v-if="realNamespace" class="font-mono text-ink-muted">
+            {{ realNamespace }}
+          </span>
+          <span v-if="realNamespace" class="text-line-strong">/</span>
+
+          <span class="max-w-64 truncate font-mono font-medium text-ink sm:max-w-md">
+            {{ name }}
+          </span>
+        </nav>
+
+        <div class="flex items-center gap-2">
           <button
             v-if="isPod"
-            class="rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-muted transition hover:border-brand/40 hover:text-ink"
             @click="forwarding = true"
           >
-            Port forward
+            <svg viewBox="0 0 16 16" class="size-3.5 text-ink-faint" fill="none" aria-hidden="true">
+              <path
+                d="M3 8h10M9 4l4 4-4 4"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>Port forward</span>
           </button>
+
           <button
-            class="rounded-lg border border-bad/40 px-2.5 py-1 text-xs text-bad hover:bg-bad/10"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-bad/30 px-2.5 py-1 text-xs font-medium text-bad transition hover:border-bad/60 hover:bg-bad/10"
             @click="deleting = true"
           >
-            Delete
+            <svg viewBox="0 0 16 16" class="size-3.5" fill="none" aria-hidden="true">
+              <path
+                d="M3 4.5h10M6.5 7v4.5M9.5 7v4.5M5 4.5l.5 8.5h5l.5-8.5M6.5 4.5V3h3v1.5"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>Delete</span>
           </button>
         </div>
       </div>
 
-      <nav class="mt-3 flex gap-1">
+      <!-- Main title and contextual metadata -->
+      <div class="mt-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div class="flex min-w-0 items-center gap-2.5">
+          <StateDot
+            v-if="isPod && podDetail"
+            :health="podDetail.health"
+            :pulse="podDetail.health === Health.HealthProgress"
+            class="size-2.5 shrink-0"
+          />
+          <h1 class="truncate font-mono text-base font-bold tracking-tight text-ink">
+            {{ name }}
+          </h1>
+          <span
+            v-if="isPod && podDetail?.status"
+            class="inline-flex items-center rounded-md border border-line bg-surface-2 px-2 py-0.5 font-mono text-[11px] font-medium text-ink-muted"
+          >
+            {{ podDetail.status }}
+          </span>
+          <span
+            v-else-if="!isPod"
+            class="inline-flex items-center rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-faint"
+          >
+            {{ heading }}
+          </span>
+        </div>
+
+        <!-- Quick metadata chips for Pod -->
+        <div
+          v-if="isPod && podDetail"
+          class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-faint"
+        >
+          <span v-if="podDetail.node" class="flex items-center gap-1.5 font-mono">
+            <span class="text-ink-muted">node:</span>
+            <span class="text-ink">{{ podDetail.node }}</span>
+          </span>
+          <span v-if="podDetail.podIp" class="flex items-center gap-1.5 font-mono">
+            <span class="text-ink-muted">ip:</span>
+            <span class="text-ink">{{ podDetail.podIp }}</span>
+          </span>
+          <span v-if="podDetail.qosClass" class="flex items-center gap-1.5 font-mono">
+            <span class="text-ink-muted">qos:</span>
+            <span class="text-ink">{{ podDetail.qosClass }}</span>
+          </span>
+          <span v-if="podDetail.startedAt" class="flex items-center gap-1.5 font-mono">
+            <span class="text-ink-muted">age:</span>
+            <span class="text-ink">{{ age(podDetail.startedAt) }}</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Navigation tabs with bottom border anchor -->
+      <nav class="mt-4 -mb-px flex gap-1 overflow-x-auto">
         <button
           v-for="entry in tabs"
           :key="entry"
-          class="rounded-lg px-2.5 py-1 text-xs"
-          :class="tab === entry ? 'bg-brand/15 text-ink' : 'text-ink-muted hover:bg-surface-2'"
+          class="group relative px-3 py-2 text-xs font-medium transition-colors"
+          :class="tab === entry ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink'"
           @click="tab = entry"
         >
-          {{ entry }}
+          <span>{{ entry }}</span>
+          <span
+            class="absolute inset-x-0 bottom-0 h-0.5 rounded-full transition-all"
+            :class="tab === entry ? 'bg-brand' : 'bg-transparent group-hover:bg-line-strong'"
+          />
         </button>
       </nav>
     </header>
 
     <div class="min-h-0 flex-1">
-      <PodOverview
-        v-if="tab === 'Overview' && isPod"
-        :cluster-id="clusterId"
-        :namespace="realNamespace"
-        :name="name"
-        @loaded="onPodLoaded"
-      />
+      <div v-if="tab === 'Overview' && isPod" class="h-full overflow-y-auto px-6 py-5">
+        <PodDetails
+          :cluster-id="clusterId"
+          :namespace="realNamespace"
+          :name="name"
+        />
+      </div>
       <LogViewer
         v-else-if="tab === 'Logs'"
         :cluster-id="clusterId"

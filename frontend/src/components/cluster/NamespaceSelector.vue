@@ -204,5 +204,7 @@ onBeforeUnmount(() => {
         </p>
       </div>
     </div>
+
+    <p v-if="!disabled" class="mt-1.5 text-[10px] text-ink-faint">Quick switch · ⌘⇧N</p>
   </div>
 </template>

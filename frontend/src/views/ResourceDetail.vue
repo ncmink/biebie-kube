@@ -20,6 +20,7 @@ import type { ContainerPort, PodDetail, ResourceRef } from '@/types'
 // common case, which is reading its overview or logs.
 const PodTerminal = defineAsyncComponent(() => import('@/components/terminal/PodTerminal.vue'))
 const YamlEditor = defineAsyncComponent(() => import('@/components/yaml/YamlEditor.vue'))
+import { useResourceDetailShortcuts } from '@/composables/useResourceDetailShortcuts'
 import { useClusterStore } from '@/stores/clusters'
 import { useUIStore } from '@/stores/ui'
 
@@ -132,6 +133,15 @@ async function loadPod() {
 }
 
 onMounted(() => void loadPod())
+
+useResourceDetailShortcuts({
+  clusterId: props.clusterId,
+  kind: props.kind,
+  namespace: props.namespace,
+  name: props.name,
+  tabs,
+  tab,
+})
 
 async function remove() {
   deleting.value = false

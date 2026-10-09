@@ -71,8 +71,8 @@ onMounted(async () => {
 
       <button
         class="no-drag rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
-        title="Command palette"
-        @click="ui.paletteOpen = true"
+        title="Command palette (⌘K)"
+        @click="ui.openPalette()"
       >
         ⌘K
       </button>

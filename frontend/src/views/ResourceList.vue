@@ -17,6 +17,7 @@ import { applyQuerySuggestion, suggestQueryTokens } from '@/composables/querySug
 import type { ContextMenuItem } from '@/composables/menu'
 import { useClusterStore } from '@/stores/clusters'
 import { useResourceStore } from '@/stores/resources'
+import { useResourceListShortcuts } from '@/composables/useResourceListShortcuts'
 import { useUIStore } from '@/stores/ui'
 import { EnvironmentKind, AccessMode, QueryMode } from '@/types'
 import type { ResourceRow } from '@/types'
@@ -83,6 +84,7 @@ const deleting = ref<ResourceRow | null>(null)
  */
 const creating = ref(false)
 
+const filterInput = ref<HTMLInputElement>()
 const expressionInput = ref<HTMLInputElement>()
 const expressionCaret = ref(0)
 const suggestionIndex = ref(0)
@@ -203,6 +205,22 @@ function choose(id: string) {
   if (action) acting.value = { row: opened.row, action }
 }
 
+const { focusIndex } = useResourceListShortcuts({
+  clusterId: props.clusterId,
+  kind: props.kind,
+  selected,
+  deleting,
+  filterInput,
+  expressionInput,
+  onRefresh: refresh,
+})
+
+const focusedKey = computed(() => {
+  const index = focusIndex.value
+  if (index < 0) return null
+  return resources.rows[index]?.key ?? null
+})
+
 async function remove() {
   const row = deleting.value
   deleting.value = null
@@ -247,6 +265,7 @@ async function remove() {
         </div>
         <input
           v-if="resources.queryMode === QueryMode.QueryModeText"
+          ref="filterInput"
           :value="resources.filter"
           class="w-64 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink outline-none focus:border-brand"
           placeholder="Filter by name"
@@ -343,6 +362,7 @@ async function remove() {
           :sort-key="resources.sortKey"
           :sort-desc="resources.sortDesc"
           :selected="selected"
+          :focused-key="focusedKey"
           @open="open"
           @menu="openMenu"
           @sort="resources.sortBy"

@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 
 import CommandPalette from '@/components/common/CommandPalette.vue'
+import NavigationSwitchers from '@/components/common/NavigationSwitchers.vue'
+import ShortcutCheatSheet from '@/components/common/ShortcutCheatSheet.vue'
 import TitleBar from '@/components/common/TitleBar.vue'
+import { useGlobalShortcuts } from '@/composables/useGlobalShortcuts'
 import NoticeBar from '@/components/common/NoticeBar.vue'
 import { api, events, on } from '@/api'
 import { useClusterStore } from '@/stores/clusters'
@@ -17,20 +20,13 @@ const forwards = usePortForwardStore()
 const ui = useUIStore()
 const router = useRouter()
 
-function onKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault()
-    ui.paletteOpen = !ui.paletteOpen
-  }
-}
+useGlobalShortcuts()
 
 onMounted(async () => {
   ui.apply()
   clusters.subscribe()
   resources.subscribe()
   forwards.subscribe()
-
-  window.addEventListener('keydown', onKeydown)
 
   await clusters.load()
   await forwards.load()
@@ -62,7 +58,6 @@ onMounted(async () => {
   void api.ready()
 })
 
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -71,5 +66,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <RouterView class="min-h-0 flex-1" />
     <NoticeBar />
     <CommandPalette />
+    <NavigationSwitchers />
+    <ShortcutCheatSheet />
   </div>
 </template>

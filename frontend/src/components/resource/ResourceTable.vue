@@ -19,6 +19,7 @@ const props = defineProps<{
   sortKey: string
   sortDesc: boolean
   selected?: ResourceRow | null
+  focusedKey?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -93,6 +94,10 @@ onUnmounted(() => resizes.disconnect())
 function isSelected(row: ResourceRow): boolean {
   return props.selected?.namespace === row.namespace && props.selected?.name === row.name
 }
+
+function isFocused(row: ResourceRow): boolean {
+  return props.focusedKey != null && row.key === props.focusedKey
+}
 </script>
 
 <template>
@@ -136,7 +141,10 @@ function isSelected(row: ResourceRow): boolean {
           v-for="row in visible"
           :key="row.key"
           class="cursor-pointer border-t border-line/60 hover:bg-surface-2"
-          :class="isSelected(row) ? 'bg-brand/10' : ''"
+          :class="[
+            isSelected(row) ? 'bg-brand/10' : '',
+            isFocused(row) && !isSelected(row) ? 'ring-1 ring-inset ring-brand/40' : '',
+          ]"
           :style="{ height: `${rowHeight}px` }"
           @click="emit('open', row)"
           @contextmenu.prevent="emit('menu', row, $event)"

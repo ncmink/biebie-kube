@@ -303,6 +303,12 @@ async function remove() {
           </ul>
         </div>
       </div>
+      <SavedViewControls
+        :cluster-id="clusterId"
+        :kind="kind"
+        :namespace="namespace"
+        :kind-title="kindInfo?.title ?? kind"
+      />
       <button
         class="rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
         @click="refresh"
@@ -324,13 +330,6 @@ async function remove() {
       :kind="kind"
       :namespace="namespace"
       :custom="kindInfo?.custom"
-    />
-
-    <SavedViewControls
-      :cluster-id="clusterId"
-      :kind="kind"
-      :namespace="namespace"
-      :kind-title="kindInfo?.title ?? kind"
     />
 
     <p

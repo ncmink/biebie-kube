@@ -76,16 +76,4 @@ async function toggleSession() {
       Allow writes this session
     </button>
   </div>
-
-  <div
-    v-else-if="canToggleSession"
-    class="flex shrink-0 items-center justify-end border-b border-line bg-surface-1 px-4 py-1.5"
-  >
-    <button
-      class="rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
-      @click="toggleSession"
-    >
-      Make this session read-only
-    </button>
-  </div>
 </template>

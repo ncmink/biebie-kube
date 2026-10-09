@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { asKind } from '@/composables/kind'
 import { useClusterStore } from '@/stores/clusters'
@@ -20,7 +20,9 @@ const resources = useResourceStore()
 const savedViews = useSavedViewsStore()
 const ui = useUIStore()
 
-const open = ref(false)
+const root = ref<HTMLElement>()
+const menuOpen = ref(false)
+const dialogOpen = ref(false)
 const saving = ref(false)
 const title = ref('')
 const editingId = ref('')
@@ -53,7 +55,19 @@ function issueText(issues: SavedViewIssueDetail[] | null | undefined): string {
   return (issues ?? []).map((issue) => issue.message).join(' ')
 }
 
+function onWindowPointerdown(event: PointerEvent) {
+  if (!root.value?.contains(event.target as Node)) menuOpen.value = false
+}
+
+watch(menuOpen, (open) => {
+  if (open) window.addEventListener('pointerdown', onWindowPointerdown)
+  else window.removeEventListener('pointerdown', onWindowPointerdown)
+})
+
+onBeforeUnmount(() => window.removeEventListener('pointerdown', onWindowPointerdown))
+
 function beginSave(existing?: SavedView) {
+  menuOpen.value = false
   editingId.value = existing?.id ?? ''
   title.value = existing?.title ?? `${props.kindTitle} view`
   if (existing?.columnIds?.length) {
@@ -61,7 +75,7 @@ function beginSave(existing?: SavedView) {
   } else {
     selectedColumns.value = columnOptions.value.map((column) => column.key)
   }
-  open.value = true
+  dialogOpen.value = true
 }
 
 function toggleColumn(key: string) {
@@ -88,7 +102,7 @@ async function submitSave() {
       kind,
       columnIds: allSelected ? [] : [...selectedColumns.value],
     })
-    open.value = false
+    dialogOpen.value = false
     ui.say(editingId.value ? 'Saved view updated.' : 'Saved view created.')
   } catch (err) {
     ui.say(savedViews.errorText(err), 'bad')
@@ -98,6 +112,7 @@ async function submitSave() {
 }
 
 async function openView(view: SavedView) {
+  menuOpen.value = false
   unresolved.value = []
   try {
     const resolution = await savedViews.resolve(props.clusterId, view.id)
@@ -128,46 +143,92 @@ async function removeView(view: SavedView) {
     ui.say(savedViews.errorText(err), 'bad')
   }
 }
-
 </script>
 
 <template>
-  <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-6 py-2">
-    <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Saved views</span>
-
-    <div v-if="kindViews.length" class="flex flex-wrap items-center gap-1.5">
-      <button
-        v-for="view in kindViews"
-        :key="view.id"
-        type="button"
-        class="rounded-full border border-line bg-surface-3 px-2.5 py-1 text-[11px] text-ink-muted hover:border-line-strong hover:text-ink"
-        @click="openView(view)"
-      >
-        {{ view.title }}
-      </button>
-    </div>
-    <span v-else class="text-[11px] text-ink-faint">No saved views for this resource yet.</span>
-
+  <div ref="root" class="relative">
     <button
       type="button"
-      class="ml-auto rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
-      @click="beginSave()"
+      class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
+      :aria-expanded="menuOpen"
+      @click="menuOpen = !menuOpen"
     >
-      Save current view…
+      Views
+      <span
+        v-if="kindViews.length"
+        class="rounded-full bg-surface-3 px-1.5 font-mono text-[10px] text-ink-faint"
+      >
+        {{ kindViews.length }}
+      </span>
+      <svg
+        viewBox="0 0 16 16"
+        class="size-3 shrink-0 text-ink-faint transition-transform"
+        :class="menuOpen ? 'rotate-180' : ''"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path d="M4 6.5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
     </button>
 
-    <p
-      v-if="unresolved.length"
-      class="w-full rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
+    <div
+      v-if="menuOpen"
+      class="absolute right-0 top-full z-30 mt-1.5 w-72 overflow-hidden rounded-lg border border-line bg-surface-2 py-1 shadow-xl shadow-black/40"
     >
-      {{ issueText(unresolved) }} Edit the saved view or fix the cluster context before applying it.
-    </p>
+      <template v-if="kindViews.length">
+        <div
+          v-for="view in kindViews"
+          :key="view.id"
+          class="flex items-center gap-1 border-b border-line/60 px-2 py-1 last:border-b-0"
+        >
+          <button
+            type="button"
+            class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-xs text-ink hover:bg-surface-3"
+            @click="openView(view)"
+          >
+            {{ view.title }}
+          </button>
+          <button
+            type="button"
+            class="shrink-0 rounded px-1.5 py-1 text-[10px] text-ink-faint hover:text-ink"
+            @click="beginSave(view)"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            class="shrink-0 rounded px-1.5 py-1 text-[10px] text-bad hover:text-bad/80"
+            @click="removeView(view)"
+          >
+            Delete
+          </button>
+        </div>
+      </template>
+      <p v-else class="px-3 py-2 text-xs text-ink-faint">No saved views for this resource yet.</p>
+
+      <p
+        v-if="unresolved.length"
+        class="mx-2 mb-1 rounded-md border border-warn/40 bg-warn/10 px-2 py-1.5 text-[10px] text-warn"
+      >
+        {{ issueText(unresolved) }}
+      </p>
+
+      <div class="border-t border-line p-1">
+        <button
+          type="button"
+          class="flex w-full rounded-md px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-3 hover:text-ink"
+          @click="beginSave()"
+        >
+          + Save current view…
+        </button>
+      </div>
+    </div>
   </div>
 
   <div
-    v-if="open"
+    v-if="dialogOpen"
     class="fixed inset-0 z-40 flex items-start justify-center bg-black/50 p-6 pt-24"
-    @click.self="open = false"
+    @click.self="dialogOpen = false"
   >
     <form
       class="w-full max-w-md rounded-2xl border border-line bg-surface-2 p-5 shadow-2xl"
@@ -213,7 +274,7 @@ async function removeView(view: SavedView) {
         <button
           type="button"
           class="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
-          @click="open = false"
+          @click="dialogOpen = false"
         >
           Cancel
         </button>
@@ -225,14 +286,6 @@ async function removeView(view: SavedView) {
           {{ saving ? 'Saving…' : editingId ? 'Update' : 'Save' }}
         </button>
       </div>
-
-      <ul v-if="kindViews.length" class="mt-4 border-t border-line pt-3 text-xs text-ink-muted">
-        <li v-for="view in kindViews" :key="`manage-${view.id}`" class="flex items-center gap-2 py-1">
-          <span class="truncate text-ink">{{ view.title }}</span>
-          <button type="button" class="ml-auto hover:text-ink" @click="beginSave(view)">Edit</button>
-          <button type="button" class="text-bad hover:text-bad/80" @click="removeView(view)">Delete</button>
-        </li>
-      </ul>
     </form>
   </div>
 </template>

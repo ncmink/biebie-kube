@@ -183,6 +183,7 @@ export const events = {
   accessChanged: 'access:changed',
   openCluster: 'app:openCluster',
   handoffFailed: 'app:handoffFailed',
+  openSettings: 'app:openSettings',
 } as const
 
 /** on subscribes to a Go event and returns the unsubscribe function. */

@@ -26,6 +26,8 @@ import 'monaco-editor/esm/vs/editor/contrib/find/browser/findController'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { applyMonacoOptions, ensureMonacoTheme, monacoEditorOptions } from '@/composables/useMonacoTheme'
+import { useSettingsStore } from '@/stores/settings'
 import { api, message } from '@/api'
 import { useUIStore } from '@/stores/ui'
 import { OwnershipStatus } from '@/types'
@@ -34,6 +36,7 @@ import type { Cluster, EditComparison, EditFreshness, MutationGate, ResourceRef 
 const props = defineProps<{ clusterId: string; resource: ResourceRef; cluster?: Cluster }>()
 
 const ui = useUIStore()
+const settings = useSettingsStore()
 
 const host = ref<HTMLElement>()
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
@@ -64,19 +67,6 @@ const confirming = ref(false)
 // Monaco expects a worker factory; without one it silently falls back to
 // running everything on the main thread and freezes on large manifests.
 self.MonacoEnvironment = { getWorker: () => new editorWorker() }
-
-monaco.editor.defineTheme('biebie', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [],
-  colors: {
-    'editor.background': '#111114',
-    'editor.foreground': '#f4f4f5',
-    'editorLineNumber.foreground': '#52525b',
-    'editorCursor.foreground': '#cbb6e8',
-    'editor.selectionBackground': '#cbb6e833',
-  },
-})
 
 /**
  * Whether a persistent change may be written here at all.
@@ -115,17 +105,14 @@ function disposeEditors() {
  */
 function mountEdit() {
   if (!host.value) return
+  ensureMonacoTheme()
   disposeEditors()
   const instance = monaco.editor.create(host.value, {
     value: edited.value,
     language: 'yaml',
-    theme: 'biebie',
     readOnly: !writable.value,
     automaticLayout: true,
-    minimap: { enabled: false },
-    fontSize: 12,
-    scrollBeyondLastLine: false,
-    tabSize: 2,
+    ...monacoEditorOptions(),
   })
   instance.onDidChangeModelContent(() => void typed(instance.getValue()))
   editor.value = instance
@@ -133,13 +120,12 @@ function mountEdit() {
 
 function mountChanges() {
   if (!host.value) return
+  ensureMonacoTheme()
   disposeEditors()
   const instance = monaco.editor.createDiffEditor(host.value, {
-    theme: 'biebie',
     automaticLayout: true,
-    minimap: { enabled: false },
-    fontSize: 12,
-    renderSideBySide: true,
+    ...monacoEditorOptions(),
+    renderSideBySide: settings.snapshot.editor.diffSideBySide,
     scrollBeyondLastLine: false,
     // The left side is the snapshot and is never editable. The right side is
     // the same document the Edit tab holds, so typing in the diff is typing in
@@ -265,6 +251,15 @@ async function refreshOriginal() {
 
 watch(view, render)
 watch(writable, render)
+
+watch(
+  () => [settings.snapshot.editor, settings.snapshot.editorTypography, settings.editorTokens],
+  () => {
+    if (editor.value) applyMonacoOptions(editor.value)
+    if (diffEditor.value) applyMonacoOptions(diffEditor.value)
+  },
+  { deep: true },
+)
 
 onMounted(open)
 onBeforeUnmount(disposeEditors)

@@ -4,6 +4,7 @@ import { RouterView, useRouter } from 'vue-router'
 
 import CommandPalette from '@/components/common/CommandPalette.vue'
 import NavigationSwitchers from '@/components/common/NavigationSwitchers.vue'
+import SettingsModal from '@/components/settings/SettingsModal.vue'
 import ShortcutCheatSheet from '@/components/common/ShortcutCheatSheet.vue'
 import TitleBar from '@/components/common/TitleBar.vue'
 import { useGlobalShortcuts } from '@/composables/useGlobalShortcuts'
@@ -13,12 +14,14 @@ import { api, events, on } from '@/api'
 import { useClusterStore } from '@/stores/clusters'
 import { usePortForwardStore } from '@/stores/sessions'
 import { useResourceStore } from '@/stores/resources'
+import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 
 const clusters = useClusterStore()
 const resources = useResourceStore()
 const forwards = usePortForwardStore()
 const ui = useUIStore()
+const settings = useSettingsStore()
 const router = useRouter()
 
 useGlobalShortcuts()
@@ -32,7 +35,7 @@ useResume(() => {
 })
 
 onMounted(async () => {
-  ui.apply()
+  settings.apply()
   clusters.subscribe()
   resources.subscribe()
   forwards.subscribe()
@@ -61,10 +64,13 @@ onMounted(async () => {
 
   on(events.handoffFailed, (reason) => ui.say(reason, 'bad'))
 
+  on(events.openSettings, () => settings.openSettings())
+
   // Only now can a deep link that arrived before the window existed be acted
   // on: Go holds it until this call, so a handoff is never consumed into a
   // window that was not yet listening.
   void api.ready()
+  if (settings.snapshot.general.autoCheckUpdates) void api.checkForUpdate()
 })
 
 </script>
@@ -77,5 +83,6 @@ onMounted(async () => {
     <CommandPalette />
     <NavigationSwitchers />
     <ShortcutCheatSheet />
+    <SettingsModal />
   </div>
 </template>

@@ -56,6 +56,9 @@ const (
 
 	// EventHandoffFailed reports a handoff that could not be honoured.
 	EventHandoffFailed = "app:handoffFailed"
+
+	// EventOpenSettings asks the UI to show preferences.
+	EventOpenSettings = "app:openSettings"
 )
 
 // Core owns everything the services share.

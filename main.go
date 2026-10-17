@@ -39,6 +39,7 @@ func init() {
 	application.RegisterEvent[bctx.AccessSessionChanged](EventAccessChanged)
 	application.RegisterEvent[HandoffResult](EventOpenCluster)
 	application.RegisterEvent[string](EventHandoffFailed)
+	application.RegisterEvent[bool](EventOpenSettings)
 
 	application.RegisterEvent[domain.Session](cluster.EventSessionChanged)
 	application.RegisterEvent[cluster.ResourceChange](cluster.EventResourcesChanged)
@@ -143,6 +144,10 @@ func main() {
 	if link := deepLinkFrom(os.Args[1:]); link != "" {
 		links.deliver(link)
 	}
+
+	appMenu := buildApplicationMenu(appService)
+	app.Menu.SetApplicationMenu(appMenu)
+	appMenu.Update()
 
 	if err := app.Run(); err != nil {
 		log.Printf("Biebie Kube stopped: %v", err)

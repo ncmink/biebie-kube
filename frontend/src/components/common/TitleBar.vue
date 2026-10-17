@@ -9,11 +9,13 @@ import { api } from '@/api'
 import { stateLabel } from '@/composables/format'
 import { useClusterStore } from '@/stores/clusters'
 import { usePortForwardStore } from '@/stores/sessions'
+import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 
 const clusters = useClusterStore()
 const forwards = usePortForwardStore()
 const ui = useUIStore()
+const settings = useSettingsStore()
 const route = useRoute()
 const version = ref('')
 
@@ -88,12 +90,14 @@ onMounted(async () => {
         >{{ running }}</span>
       </RouterLink>
 
-      <RouterLink
-        :to="{ name: 'settings' }"
+      <button
+        type="button"
         class="no-drag rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
+        title="Settings (⌘,)"
+        @click="settings.openSettings()"
       >
         Settings
-      </RouterLink>
+      </button>
     </div>
   </header>
 </template>

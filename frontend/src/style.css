@@ -118,6 +118,7 @@ body {
   background-color: var(--color-surface-0);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  font-size: var(--app-font-size, 14px);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }

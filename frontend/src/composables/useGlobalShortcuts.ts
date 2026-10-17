@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { inMonaco, isTypingTarget, matchChord, modKey } from '@/composables/shortcutKeys'
 import { useClusterStore } from '@/stores/clusters'
+import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 
 async function closeActiveClusterTab(
@@ -30,12 +31,13 @@ function focusClusterTab(
 
 export function useGlobalShortcuts() {
   const ui = useUIStore()
+  const settings = useSettingsStore()
   const clusters = useClusterStore()
   const router = useRouter()
   const route = useRoute()
 
   function overlayOpen(): boolean {
-    return ui.paletteOpen || ui.switcher !== null || ui.shortcutsOpen
+    return ui.paletteOpen || ui.switcher !== null || ui.shortcutsOpen || settings.settingsOpen
   }
 
   function clusterRouteId(): string {
@@ -55,6 +57,11 @@ export function useGlobalShortcuts() {
     }
 
     if (matchChord(event, { key: 'Escape', mod: false })) {
+      if (settings.settingsOpen) {
+        event.preventDefault()
+        settings.closeSettings()
+        return
+      }
       if (ui.shortcutsOpen) {
         event.preventDefault()
         ui.shortcutsOpen = false
@@ -77,7 +84,7 @@ export function useGlobalShortcuts() {
 
     if (matchChord(event, { key: ',', shift: false, alt: false })) {
       event.preventDefault()
-      void router.push({ name: 'settings' })
+      settings.openSettings()
       return
     }
 

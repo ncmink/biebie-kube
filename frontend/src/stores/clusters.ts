@@ -1,8 +1,9 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { api, events, message, on } from '@/api'
 import { useSavedViewsStore } from '@/stores/savedViews'
+import { useSettingsStore } from '@/stores/settings'
 import { AccessConnectionState, AccessMode, ClusterState } from '@/types'
 import type {
   AccessState,
@@ -59,7 +60,15 @@ export const useClusterStore = defineStore('clusters', () => {
   const activeId = ref<string>('')
 
   /** openIds are the clusters with a tab, in the order they were opened. */
-  const openIds = ref<string[]>([])
+  const openIds = ref<string[]>(useSettingsStore().readOpenClusters())
+
+  watch(
+    openIds,
+    (ids) => {
+      useSettingsStore().persistOpenClusters(ids)
+    },
+    { deep: true },
+  )
 
   const loading = ref(false)
   const error = ref('')

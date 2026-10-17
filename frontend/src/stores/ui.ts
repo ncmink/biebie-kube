@@ -1,14 +1,13 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
-export type Appearance = 'dark' | 'light' | 'system'
+import { useSettingsStore, type Appearance } from '@/stores/settings'
+
+export type { Appearance } from '@/stores/settings'
 export type SwitcherKind = 'cluster' | 'namespace' | 'kind'
 
-const storageKey = 'biebie-kube.appearance'
-
-/** Chrome-level UI state: appearance, the command palette, and notices. */
+/** Chrome-level UI state: overlays and notices. Appearance lives in settings. */
 export const useUIStore = defineStore('ui', () => {
-  const appearance = ref<Appearance>(readAppearance())
   const paletteOpen = ref(false)
   const switcher = ref<SwitcherKind | null>(null)
   const shortcutsOpen = ref(false)
@@ -16,33 +15,25 @@ export const useUIStore = defineStore('ui', () => {
 
   let noticeTimer: number | undefined
 
-  function readAppearance(): Appearance {
-    const stored = localStorage.getItem(storageKey)
-    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark'
+  function settings() {
+    return useSettingsStore()
   }
 
-  /**
-   * apply switches the palette by toggling one class on the root element, so
-   * every component follows without knowing appearance exists.
-   */
   function apply() {
-    const system = window.matchMedia('(prefers-color-scheme: light)').matches
-    const light = appearance.value === 'light' || (appearance.value === 'system' && system)
-    document.documentElement.classList.toggle('theme-light', light)
+    settings().apply()
   }
 
   function setAppearance(next: Appearance) {
-    appearance.value = next
-    localStorage.setItem(storageKey, next)
-    apply()
+    settings().setAppearance(next)
   }
 
   function say(text: string, tone: 'ok' | 'bad' = 'ok') {
     notice.value = { tone, text }
     window.clearTimeout(noticeTimer)
+    const duration = tone === 'bad' ? settings().snapshot.general.noticeBadMs : settings().snapshot.general.noticeOkMs
     noticeTimer = window.setTimeout(() => {
       notice.value = null
-    }, tone === 'bad' ? 8000 : 4000)
+    }, duration)
   }
 
   function dismiss() {
@@ -86,12 +77,7 @@ export const useUIStore = defineStore('ui', () => {
     shortcutsOpen.value = true
   }
 
-  // Following the system means following it as it changes, not only at start.
-  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
-    if (appearance.value === 'system') apply()
-  })
-
-  watch(appearance, apply, { immediate: true })
+  const appearance = computed(() => settings().appearance)
 
   return {
     appearance,

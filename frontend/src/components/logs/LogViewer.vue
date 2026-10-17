@@ -14,12 +14,14 @@ import LogButton from '@/components/logs/LogButton.vue'
 import { api, copyToClipboard, events, message, on } from '@/api'
 import { highlight, parseAnsi, stripAnsi } from '@/composables/ansi'
 import type { Segment } from '@/composables/ansi'
+import { useSettingsStore } from '@/stores/settings'
 import { useUIStore } from '@/stores/ui'
 import type { ContainerInfo, LogChunk } from '@/types'
 
 const props = defineProps<{ clusterId: string; namespace: string; pod: string }>()
 
 const ui = useUIStore()
+const settings = useSettingsStore()
 
 /**
  * The viewer holds a bounded window of lines.
@@ -58,11 +60,11 @@ const rows = shallowRef<Row[]>([])
 let counter = 0
 
 const follow = ref(true)
-const timestamps = ref(false)
+const timestamps = ref(settings.snapshot.editor.logTimestamps)
 const previous = ref(false)
-const tailLines = ref(500)
+const tailLines = ref(settings.snapshot.editor.logTailLines)
 const paused = ref(false)
-const wrap = ref(false)
+const wrap = ref(settings.snapshot.editor.logWrap)
 const numbers = ref(false)
 const matchCase = ref(false)
 const expanded = ref(false)
@@ -493,7 +495,12 @@ watch(() => [props.pod, props.namespace], async () => {
     <div class="relative min-h-0 flex-1">
       <div
         ref="output"
-        class="h-full overflow-auto bg-surface-1 py-2 font-mono text-xs leading-5"
+        class="h-full overflow-auto bg-surface-1 py-2 font-mono leading-5"
+        :style="{
+          fontFamily: 'var(--editor-font-family)',
+          fontSize: 'var(--editor-font-size)',
+          lineHeight: 'var(--editor-line-height)',
+        }"
         @scroll="watchScroll"
       >
         <div v-if="shown.length" :class="wrap ? 'w-full' : 'w-max min-w-full'">

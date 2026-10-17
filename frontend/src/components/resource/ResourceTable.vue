@@ -1,9 +1,21 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 
+function formatAge(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  if (settings.snapshot.table.ageFormat === 'iso') {
+    const at = new Date(iso)
+    return Number.isNaN(at.getTime()) ? '—' : at.toISOString()
+  }
+  return age(iso)
+}
+
 import StateDot from '@/components/common/StateDot.vue'
 import { age } from '@/composables/format'
+import { useSettingsStore } from '@/stores/settings'
 import type { Column, ResourceRow } from '@/types'
+
+const settings = useSettingsStore()
 
 const props = defineProps<{
   /**
@@ -36,7 +48,7 @@ const emit = defineEmits<{
  * for each one, and the table would take seconds to appear and stutter while
  * scrolling. Only what fits on screen, plus a margin, is rendered.
  */
-const rowHeight = 34
+const rowHeight = computed(() => settings.tableRowHeight())
 const overscan = 12
 
 /** How close to the end of the loaded rows asks for the next window. */
@@ -46,8 +58,8 @@ const viewport = ref<HTMLElement>()
 const scrollTop = ref(0)
 const viewportHeight = ref(600)
 
-const start = computed(() => Math.max(0, Math.floor(scrollTop.value / rowHeight) - overscan))
-const visibleCount = computed(() => Math.ceil(viewportHeight.value / rowHeight) + overscan * 2)
+const start = computed(() => Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - overscan))
+const visibleCount = computed(() => Math.ceil(viewportHeight.value / rowHeight.value) + overscan * 2)
 const visible = computed(() => props.rows.slice(start.value, start.value + visibleCount.value))
 
 const sortable = computed(() => [
@@ -102,7 +114,13 @@ function isFocused(row: ResourceRow): boolean {
 
 <template>
   <div ref="viewport" class="h-full overflow-auto" @scroll.passive="onScroll">
-    <table class="w-full border-collapse text-sm">
+    <table
+      class="w-full border-collapse"
+      :style="{
+        fontSize: 'var(--table-font-size)',
+        fontFamily: 'var(--table-font-family, inherit)',
+      }"
+    >
       <thead class="sticky top-0 z-10 bg-surface-1">
         <tr class="text-left text-[11px] uppercase tracking-wider text-ink-faint">
           <th
@@ -138,11 +156,12 @@ function isFocused(row: ResourceRow): boolean {
         </tr>
 
         <tr
-          v-for="row in visible"
+          v-for="(row, index) in visible"
           :key="row.key"
-          class="cursor-pointer border-t border-line/60 hover:bg-surface-2"
+          class="cursor-pointer border-t border-line/60 hover:bg-[var(--table-row-hover)]"
           :class="[
-            isSelected(row) ? 'bg-brand/10' : '',
+            isSelected(row) ? 'bg-[var(--table-row-selected)]' : '',
+            settings.snapshot.table.striping && (start + index) % 2 === 1 ? 'bg-[var(--table-row-stripe)]' : '',
             isFocused(row) && !isSelected(row) ? 'ring-1 ring-inset ring-brand/40' : '',
           ]"
           :style="{ height: `${rowHeight}px` }"
@@ -166,7 +185,7 @@ function isFocused(row: ResourceRow): boolean {
           >
             {{ row.fields?.[column.key] ?? '—' }}
           </td>
-          <td class="px-3 font-mono text-xs text-ink-faint">{{ age(row.createdAt) }}</td>
+          <td class="px-3 font-mono text-xs text-ink-faint">{{ formatAge(row.createdAt) }}</td>
         </tr>
 
         <tr

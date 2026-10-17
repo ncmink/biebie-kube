@@ -19,6 +19,9 @@ import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 import 'monaco-editor/esm/vs/editor/contrib/find/browser/findController'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
+import { applyMonacoOptions, ensureMonacoTheme, monacoEditorOptions } from '@/composables/useMonacoTheme'
+import { useSettingsStore } from '@/stores/settings'
+
 const props = withDefaults(
   defineProps<{ modelValue: string; language: 'yaml' | 'typescript'; readonly?: boolean }>(),
   { readonly: false },
@@ -28,37 +31,22 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
 const host = ref<HTMLElement>()
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
+const settings = useSettingsStore()
 
 // Monaco expects a worker factory; without one it silently falls back to
 // running everything on the main thread and freezes on large manifests.
 self.MonacoEnvironment = { getWorker: () => new editorWorker() }
 
-monaco.editor.defineTheme('biebie', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [],
-  colors: {
-    'editor.background': '#111114',
-    'editor.foreground': '#f4f4f5',
-    'editorLineNumber.foreground': '#52525b',
-    'editorCursor.foreground': '#cbb6e8',
-    'editor.selectionBackground': '#cbb6e833',
-  },
-})
-
 function mount() {
   if (!host.value) return
+  ensureMonacoTheme()
   editor.value?.dispose()
   editor.value = monaco.editor.create(host.value, {
     value: props.modelValue,
     language: props.language,
-    theme: 'biebie',
     readOnly: props.readonly,
     automaticLayout: true,
-    minimap: { enabled: false },
-    fontSize: 12,
-    scrollBeyondLastLine: false,
-    tabSize: 2,
+    ...monacoEditorOptions(),
   })
   editor.value.onDidChangeModelContent(() => {
     emit('update:modelValue', editor.value?.getValue() ?? '')
@@ -77,6 +65,14 @@ watch(
 )
 
 watch(() => props.language, mount)
+
+watch(
+  () => [settings.snapshot.editor, settings.snapshot.editorTypography, settings.editorTokens],
+  () => {
+    if (editor.value) applyMonacoOptions(editor.value)
+  },
+  { deep: true },
+)
 
 onMounted(mount)
 onBeforeUnmount(() => editor.value?.dispose())

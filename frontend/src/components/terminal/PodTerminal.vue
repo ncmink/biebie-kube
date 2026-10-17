@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+
+function applyTerminalOptions() {
+  if (!term) return
+  term.options.fontFamily = settings.editorFontFamily()
+  term.options.fontSize = settings.snapshot.editor.terminalFontSize
+  term.options.cursorBlink = settings.snapshot.editor.cursorBlink
+  term.options.theme = terminalTheme()
+  fit?.fit()
+}
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 
 import { api, events, message, on } from '@/api'
+import { useSettingsStore } from '@/stores/settings'
 import type { ContainerInfo } from '@/types'
+
+const settings = useSettingsStore()
 
 const props = defineProps<{ clusterId: string; namespace: string; pod: string }>()
 
@@ -21,25 +33,28 @@ let fit: FitAddon | undefined
 let unsubscribe: (() => void) | undefined
 let resizeObserver: ResizeObserver | undefined
 
-/** The palette matches the application's, so the terminal is not a bright hole. */
-const theme = {
-  background: '#111114',
-  foreground: '#f4f4f5',
-  cursor: '#cbb6e8',
-  selectionBackground: '#cbb6e855',
-  black: '#1c1d1f',
-  brightBlack: '#71717a',
+function terminalTheme() {
+  const tokens = settings.editorTokens
+  const palette = settings.palette
+  return {
+    background: `#${tokens.editorBackground}`,
+    foreground: `#${tokens.editorForeground}`,
+    cursor: palette.brand,
+    selectionBackground: `#${tokens.selectionBackground}88`,
+    black: palette.surface0,
+    brightBlack: palette.inkFaint,
+  }
 }
 
 function ensureTerminal() {
   if (term || !host.value) return
 
   term = new Terminal({
-    fontFamily: "ui-monospace, 'SF Mono', 'JetBrains Mono', monospace",
-    fontSize: 12,
-    cursorBlink: true,
+    fontFamily: settings.editorFontFamily(),
+    fontSize: settings.snapshot.editor.terminalFontSize,
+    cursorBlink: settings.snapshot.editor.cursorBlink,
     convertEol: true,
-    theme,
+    theme: terminalTheme(),
   })
   fit = new FitAddon()
   term.loadAddon(fit)
@@ -125,6 +140,12 @@ onBeforeUnmount(async () => {
   await close()
   term?.dispose()
 })
+
+watch(
+  () => [settings.snapshot.editor, settings.snapshot.editorTypography, settings.editorTokens, settings.palette],
+  applyTerminalOptions,
+  { deep: true },
+)
 
 watch(container, open)
 watch(() => [props.pod, props.namespace], async () => {

@@ -69,8 +69,7 @@ onMounted(async () => {
   // Only now can a deep link that arrived before the window existed be acted
   // on: Go holds it until this call, so a handoff is never consumed into a
   // window that was not yet listening.
-  void api.ready()
-  if (settings.snapshot.general.autoCheckUpdates) void api.checkForUpdate()
+  void api.ready(settings.snapshot.general.autoCheckUpdates)
 })
 
 </script>

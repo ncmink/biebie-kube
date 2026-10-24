@@ -42,6 +42,11 @@ type Data struct {
 	AutoImport *bool `json:"autoImport,omitempty"`
 
 	Appearance string `json:"appearance"`
+
+	// LastUpdateCheckAt is when the updater last contacted GitHub (RFC3339).
+	// Automatic checks are throttled so shared IPs do not exhaust the
+	// unauthenticated rate limit.
+	LastUpdateCheckAt string `json:"lastUpdateCheckAt,omitempty"`
 }
 
 // AutoImportEnabled reports whether new kubeconfig contexts should become

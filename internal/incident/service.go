@@ -87,6 +87,12 @@ func (s *Service) collectPod(ctx context.Context, clusterID string, ref domain.R
 	bundle.noteScope("Pod state")
 	bundle.noteScope("Container state")
 	recordContainerEvidence(ref, bundle.RootUID, detail, bundle)
+	if detail.Status == "Pending" {
+		if overview, err := s.resources.Overview(ctx, clusterID); err == nil && len(overview.NodeCapacity) > 0 {
+			bundle.NodeCapacity = overview.NodeCapacity
+			bundle.noteScope("Node capacity")
+		}
+	}
 }
 
 // stuckPodEventSample caps how many stuck pods have their events read.

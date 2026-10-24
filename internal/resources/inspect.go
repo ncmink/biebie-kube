@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"biebie-kube/internal/domain"
 )
@@ -74,6 +75,9 @@ func (s *Service) InspectResource(ctx context.Context, clusterID string, ref dom
 	out := Inspect(ref.Kind, obj)
 	if ref.Kind == domain.KindNode {
 		out.Properties = s.enrichNodeCapacity(ctx, clusterID, obj.GetName(), out.Properties)
+	}
+	if ref.Kind == domain.KindPod {
+		out.Properties = s.enrichPodGPU(ctx, clusterID, obj, out.Properties)
 	}
 	return out, nil
 }
@@ -191,7 +195,7 @@ func (s *Service) enrichNodeCapacity(ctx context.Context, clusterID, nodeName st
 		return base
 	}
 
-	capacity, _ := nodeCapacity([]corev1.Node{*node}, pods.Items, s.nodeUsage(ctx, clusterID))
+	capacity, _, _ := nodeCapacity([]corev1.Node{*node}, pods.Items, s.nodeUsage(ctx, clusterID))
 	if len(capacity) == 0 {
 		return base
 	}
@@ -211,6 +215,9 @@ func (s *Service) enrichNodeCapacity(ctx context.Context, clusterID, nodeName st
 		entry.MemoryAllocatableBytes,
 	))
 	extra.add("Pods", formatPodsUsed(entry.PodsUsed, entry.MaxPods))
+	for _, gpu := range entry.GPU {
+		extra.add("GPU "+gpu.Name, formatGPUUsed(gpu.Requested, gpu.Allocatable))
+	}
 	if entry.CPUUsedMilli > 0 || entry.MemoryUsedBytes > 0 {
 		extra.add("Usage", formatAllocated(
 			entry.CPUUsedMilli,
@@ -233,6 +240,55 @@ func (s *Service) enrichNodeCapacity(ctx context.Context, clusterID, nodeName st
 		out = append(out, extra...)
 	}
 	return out
+}
+
+func (s *Service) enrichPodGPU(ctx context.Context, clusterID string, obj *unstructured.Unstructured, base []domain.InspectProperty) []domain.InspectProperty {
+	pod, err := unstructuredToPod(obj)
+	if err != nil {
+		return base
+	}
+	requests := podGPURequests(*pod)
+	gpuLine := formatGPURequests(requests)
+	if gpuLine == "" {
+		return base
+	}
+
+	extra := props{}
+	extra.mono("GPU", gpuLine)
+	if pod.Spec.NodeName != "" {
+		if product := s.nodeGPULabel(ctx, clusterID, pod.Spec.NodeName); product != "" {
+			extra.add("GPU hardware", product)
+		}
+	}
+
+	out := append([]domain.InspectProperty{}, base...)
+	out = append(out, extra...)
+	return out
+}
+
+func (s *Service) nodeGPULabel(ctx context.Context, clusterID, nodeName string) string {
+	client, err := s.clusters.Client(clusterID)
+	if err != nil {
+		return ""
+	}
+	node, err := client.Clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, key := range []string{"nvidia.com/gpu.product", "amd.com/gpu.product"} {
+		if value := node.Labels[key]; value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func unstructuredToPod(obj *unstructured.Unstructured) (*corev1.Pod, error) {
+	pod := &corev1.Pod{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, pod); err != nil {
+		return nil, err
+	}
+	return pod, nil
 }
 
 func inspectNode(obj *unstructured.Unstructured) []domain.InspectProperty {

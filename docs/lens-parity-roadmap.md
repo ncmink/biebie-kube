@@ -31,6 +31,9 @@ Pointers use repo paths under `biebie-kube/`.
 | Lens item | Status | Notes |
 |-----------|--------|-------|
 | metrics-server usage columns | **Have** | `internal/resources/usage.go`, `capacity.go` |
+| GPU extended resources (allocatable / requests) | **Have** | `internal/resources/gpu.go`, `capacity.go`, Overview node table, node/pod inspector |
+| GPU utilization (DCGM / Prometheus) | **Roadmap** | Tie to Prometheus auto-detect; metrics-server has no GPU metrics |
+| DRA objects (ResourceClaim, DeviceClass, ResourceSlice) | **Roadmap** | v1.37 DRA stable; claim-only workloads not in extended-resource view |
 | Auto-detect Prometheus / VictoriaMetrics | **Roadmap** | Would need discovery + alternate metrics path |
 | Cost monitoring | **N/A by design** | Not in Observe / Operate / GitOps focus |
 

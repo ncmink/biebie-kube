@@ -8,6 +8,41 @@ import (
 	"biebie-kube/internal/testfixture"
 )
 
+func TestInsufficientGPUSchedulingFinding(t *testing.T) {
+	detail := domain.PodDetail{
+		Ref:    domain.ResourceRef{Kind: domain.KindPod, Namespace: "ml", Name: "trainer"},
+		Status: "Pending",
+	}
+	bundle := EvidenceBundle{
+		RootRef: detail.Ref,
+		Pod:     &detail,
+		Events: []domain.EventRow{{
+			Type:    "Warning",
+			Reason:  "FailedScheduling",
+			Message: "0/2 nodes are available: 2 Insufficient nvidia.com/gpu.",
+		}},
+		EventsOK: true,
+		NodeCapacity: []domain.NodeCapacity{{
+			Name: "gpu-a",
+			GPU:  []domain.GPUResource{{Name: "nvidia.com/gpu", Allocatable: 4, Requested: 4}},
+		}},
+	}
+
+	findings := podRules(bundle)
+	var found bool
+	for _, finding := range findings {
+		if finding.RuleID == "pod.insufficient_gpu" {
+			found = true
+			if !strings.Contains(finding.Summary, "GPU") {
+				t.Fatalf("summary = %q", finding.Summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %+v", findings)
+	}
+}
+
 func TestCrashLoopBackOffFinding(t *testing.T) {
 	detail := domain.PodDetail{
 		Ref:    domain.ResourceRef{Kind: domain.KindPod, Namespace: "team-a", Name: "demo"},

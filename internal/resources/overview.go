@@ -53,9 +53,10 @@ func (s *Service) Overview(ctx context.Context, clusterID string) (domain.Cluste
 
 	if len(nodeList) > 0 {
 		usage := s.nodeUsage(ctx, clusterID)
-		capacity, unscheduled := nodeCapacity(nodeList, podList, usage)
+		capacity, unscheduled, unscheduledGPU := nodeCapacity(nodeList, podList, usage)
 		overview.NodeCapacity = capacity
 		overview.UnscheduledPods = unscheduled
+		overview.UnscheduledGPUPods = unscheduledGPU
 	}
 
 	if namespaces, err := client.Clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{}); err == nil {

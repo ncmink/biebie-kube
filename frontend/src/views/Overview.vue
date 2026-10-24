@@ -92,12 +92,31 @@ function barClass(pct: number) {
   return 'bg-brand'
 }
 
+function gpuPressure(node: NodeCapacity) {
+  let peak = 0
+  for (const gpu of node.gpu ?? []) {
+    peak = Math.max(peak, percent(gpu.requested, gpu.allocatable))
+  }
+  return peak
+}
+
 function nodePressure(node: NodeCapacity) {
   return Math.max(
     percent(node.cpuRequestMilli, node.cpuAllocatableMilli),
     percent(node.memoryRequestBytes, node.memoryAllocatableBytes),
     percent(node.podsUsed, node.maxPods),
+    gpuPressure(node),
   )
+}
+
+const showGpuColumn = computed(() =>
+  (overview.value?.nodeCapacity ?? []).some((node) => (node.gpu?.length ?? 0) > 0),
+)
+
+function primaryGpu(node: NodeCapacity) {
+  const gpus = node.gpu ?? []
+  if (gpus.length === 0) return null
+  return gpus.find((gpu) => gpu.name === 'nvidia.com/gpu') ?? gpus[0]
 }
 
 const sortedNodes = computed(() => {
@@ -277,14 +296,31 @@ watch(() => props.clusterId, load)
           <h2 class="text-xs font-semibold uppercase tracking-widest text-ink-faint">
             Node capacity
           </h2>
-          <p v-if="overview.unscheduledPods" class="text-xs text-warn">
-            {{ overview.unscheduledPods }} pod{{ overview.unscheduledPods === 1 ? '' : 's' }} waiting
-            for a node
+          <p
+            v-if="overview.unscheduledPods || overview.unscheduledGpuPods"
+            class="text-xs text-warn"
+          >
+            <span v-if="overview.unscheduledPods">
+              {{ overview.unscheduledPods }} pod{{ overview.unscheduledPods === 1 ? '' : 's' }} waiting
+              for a node
+            </span>
+            <span v-if="overview.unscheduledGpuPods">
+              <template v-if="overview.unscheduledPods"> · </template>
+              {{ overview.unscheduledGpuPods }} GPU workload{{
+                overview.unscheduledGpuPods === 1 ? '' : 's'
+              }}
+              unscheduled
+            </span>
           </p>
         </div>
         <div class="mt-2 overflow-hidden rounded-xl border border-line">
           <div
-            class="hidden grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))] gap-3 border-b border-line bg-surface-3 px-4 py-2 text-[10px] uppercase tracking-wide text-ink-faint lg:grid"
+            class="hidden gap-3 border-b border-line bg-surface-3 px-4 py-2 text-[10px] uppercase tracking-wide text-ink-faint lg:grid"
+            :class="
+              showGpuColumn
+                ? 'grid-cols-[minmax(0,1.4fr)_repeat(6,minmax(0,1fr))]'
+                : 'grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))]'
+            "
           >
             <span>Node</span>
             <span>CPU used</span>
@@ -292,12 +328,18 @@ watch(() => props.clusterId, load)
             <span>Mem used</span>
             <span>Mem req</span>
             <span>Pods</span>
+            <span v-if="showGpuColumn">GPU req</span>
           </div>
           <ul class="divide-y divide-line">
             <li
               v-for="node in sortedNodes"
               :key="node.name"
-              class="grid gap-3 bg-surface-2 px-4 py-3 lg:grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))]"
+              class="grid gap-3 bg-surface-2 px-4 py-3"
+              :class="
+                showGpuColumn
+                  ? 'lg:grid-cols-[minmax(0,1.4fr)_repeat(6,minmax(0,1fr))]'
+                  : 'lg:grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))]'
+              "
             >
               <button
                 class="min-w-0 text-left"
@@ -381,6 +423,28 @@ watch(() => props.clusterId, load)
                     :style="{ width: `${percent(node.podsUsed, node.maxPods)}%` }"
                   />
                 </div>
+              </div>
+              <div v-if="showGpuColumn">
+                <template v-if="primaryGpu(node)">
+                  <p class="font-mono text-xs text-ink-muted">
+                    {{ primaryGpu(node)!.requested }}/{{ primaryGpu(node)!.allocatable }}
+                    ({{
+                      Math.max(0, primaryGpu(node)!.allocatable - primaryGpu(node)!.requested)
+                    }}
+                    free)
+                  </p>
+                  <p class="mt-0.5 truncate text-[10px] text-ink-faint" :title="primaryGpu(node)!.name">
+                    {{ primaryGpu(node)!.name }}
+                  </p>
+                  <div class="mt-1 h-1 overflow-hidden rounded-full bg-surface-3">
+                    <div
+                      class="h-full rounded-full"
+                      :class="barClass(gpuPressure(node))"
+                      :style="{ width: `${gpuPressure(node)}%` }"
+                    />
+                  </div>
+                </template>
+                <p v-else class="font-mono text-xs text-ink-faint">—</p>
               </div>
             </li>
           </ul>

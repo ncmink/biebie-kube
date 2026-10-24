@@ -12,8 +12,10 @@ import (
 
 // nodeCapacity aggregates per-node allocatable, requests, limits, usage and pod
 // counts from the same node and pod lists Overview already reads.
-func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev1.ResourceList) ([]domain.NodeCapacity, int) {
+func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev1.ResourceList) ([]domain.NodeCapacity, int, int) {
 	byNode := make(map[string]*domain.NodeCapacity, len(nodes))
+	gpuAlloc := make(map[string]map[string]int64, len(nodes))
+	gpuRequested := make(map[string]map[string]int64, len(nodes))
 	for _, node := range nodes {
 		maxPods := int(node.Status.Allocatable.Pods().Value())
 		byNode[node.Name] = &domain.NodeCapacity{
@@ -24,6 +26,8 @@ func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev
 			MemoryAllocatableBytes: node.Status.Allocatable.Memory().Value(),
 			MaxPods:                maxPods,
 		}
+		gpuAlloc[node.Name] = gpuAllocatable(node)
+		gpuRequested[node.Name] = make(map[string]int64)
 		if used, ok := usage[node.Name]; ok {
 			byNode[node.Name].CPUUsedMilli = used.Cpu().MilliValue()
 			byNode[node.Name].MemoryUsedBytes = used.Memory().Value()
@@ -31,9 +35,13 @@ func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev
 	}
 
 	unscheduled := 0
+	unscheduledGPU := 0
 	for _, pod := range pods {
 		if pod.Status.Phase == corev1.PodPending && pod.Spec.NodeName == "" {
 			unscheduled++
+			if podRequestsGPU(pod) {
+				unscheduledGPU++
+			}
 			continue
 		}
 		if !countsTowardNode(pod) {
@@ -50,14 +58,16 @@ func nodeCapacity(nodes []corev1.Node, pods []corev1.Pod, usage map[string]corev
 		entry.MemoryRequestBytes += reqMem.Value()
 		entry.CPULimitMilli += limCPU.MilliValue()
 		entry.MemoryLimitBytes += limMem.Value()
+		mergeGPURequested(gpuRequested[nodeName], podGPURequests(pod))
 	}
 
 	out := make([]domain.NodeCapacity, 0, len(byNode))
-	for _, entry := range byNode {
+	for name, entry := range byNode {
+		entry.GPU = nodeGPUCapacity(gpuAlloc[name], gpuRequested[name])
 		out = append(out, *entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, unscheduled
+	return out, unscheduled, unscheduledGPU
 }
 
 // countsTowardNode reports whether a pod occupies a slot on its node, matching

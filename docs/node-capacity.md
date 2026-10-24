@@ -17,7 +17,9 @@ kubectl get pods -A --field-selector spec.nodeName=<name>
 | CPU / Memory allocatable | `status.allocatable` | What the scheduler may place on the node |
 | CPU / Memory req % | `describe` → Requests | Sum of pod **requests** already reserved |
 | Pods used / max | pod count vs `allocatable.pods` | Pod slots consumed vs the node's ceiling |
+| GPU req | `describe` → Allocated resources | Sum of pod **requests** for accelerator extended resources (for example `nvidia.com/gpu`) |
 | Waiting for a node | Pending pods with no `nodeName` | Work queued but not yet assigned |
+| GPU workloads unscheduled | Pending pods with GPU requests and no `nodeName` | GPU jobs waiting for a node with free accelerators |
 
 ## Requests, not limits
 
@@ -40,6 +42,17 @@ Pod requests follow the scheduler rule:
 ```text
 max(sum(container requests), max(initContainer requests)) + overhead
 ```
+
+## GPU extended resources
+
+GPU counts come from **extended resource names** on nodes and pods, such as
+`nvidia.com/gpu` or `nvidia.com/mig-*`. They match what `kubectl describe node`
+shows under Allocated resources for those names.
+
+- Biebie Kube does **not** show GPU utilization, temperature, or power. Those
+  need DCGM or Prometheus exporters, not metrics-server.
+- Workloads that use **DRA ResourceClaims only** (no extended resource in the
+  pod spec) are not counted yet.
 
 ## When data is missing
 

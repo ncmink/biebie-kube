@@ -16,7 +16,7 @@ func TestNodeCapacityIgnoresCompletedPods(t *testing.T) {
 		testPod("failed", "node-a", corev1.PodFailed, "500m", "1Gi"),
 	}
 
-	capacity, unscheduled := nodeCapacity(nodes, pods, nil)
+	capacity, unscheduled, _ := nodeCapacity(nodes, pods, nil)
 	if unscheduled != 0 {
 		t.Fatalf("unscheduled = %d", unscheduled)
 	}
@@ -58,7 +58,7 @@ func TestNodeCapacityInitContainerMax(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	capacity, _ := nodeCapacity([]corev1.Node{testNode("node-a", "8", "16Gi", "110")}, []corev1.Pod{pod}, nil)
+	capacity, _, _ := nodeCapacity([]corev1.Node{testNode("node-a", "8", "16Gi", "110")}, []corev1.Pod{pod}, nil)
 	if capacity[0].CPURequestMilli != 2000 {
 		t.Fatalf("cpu request = %d; init max should win over container sum", capacity[0].CPURequestMilli)
 	}
@@ -89,7 +89,7 @@ func TestNodeCapacityOverhead(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	capacity, _ := nodeCapacity([]corev1.Node{testNode("node-a", "4", "8Gi", "110")}, []corev1.Pod{pod}, nil)
+	capacity, _, _ := nodeCapacity([]corev1.Node{testNode("node-a", "4", "8Gi", "110")}, []corev1.Pod{pod}, nil)
 	if capacity[0].CPURequestMilli != 60 {
 		t.Fatalf("cpu request = %d; overhead must be included", capacity[0].CPURequestMilli)
 	}
@@ -102,7 +102,7 @@ func TestNodeCapacityUnscheduledPending(t *testing.T) {
 		Status:     corev1.PodStatus{Phase: corev1.PodPending},
 	}}
 
-	_, unscheduled := nodeCapacity([]corev1.Node{testNode("node-a", "4", "8Gi", "110")}, pods, nil)
+	_, unscheduled, _ := nodeCapacity([]corev1.Node{testNode("node-a", "4", "8Gi", "110")}, pods, nil)
 	if unscheduled != 1 {
 		t.Fatalf("unscheduled = %d", unscheduled)
 	}
@@ -115,7 +115,7 @@ func TestNodeCapacityUsageAndEmptyNode(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("2Gi"),
 		},
 	}
-	capacity, _ := nodeCapacity(
+	capacity, _, _ := nodeCapacity(
 		[]corev1.Node{
 			testNode("node-a", "4", "8Gi", "110"),
 			testNode("node-b", "4", "8Gi", "110"),

@@ -489,6 +489,9 @@ type ClusterOverview struct {
 	// UnscheduledPods counts Pending pods with no node assigned yet.
 	UnscheduledPods int `json:"unscheduledPods,omitempty"`
 
+	// UnscheduledGPUPods counts Pending unscheduled pods that request a GPU.
+	UnscheduledGPUPods int `json:"unscheduledGpuPods,omitempty"`
+
 	RecentWarnings []EventRow `json:"recentWarnings,omitempty"`
 }
 
@@ -530,6 +533,15 @@ type NodeCapacity struct {
 	CPUUsedMilli    int64 `json:"cpuUsedMilli,omitempty"`
 	MemoryUsedBytes int64 `json:"memoryUsedBytes,omitempty"`
 	PodsUsed        int   `json:"podsUsed"`
+
+	GPU []GPUResource `json:"gpu,omitempty"`
+}
+
+// GPUResource is one extended accelerator resource on a node.
+type GPUResource struct {
+	Name        string `json:"name"`
+	Allocatable int64  `json:"allocatable"`
+	Requested   int64  `json:"requested"`
 }
 
 // NodeDetail is the typed view Explain Why reads for one node.

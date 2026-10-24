@@ -20,6 +20,8 @@ type EvidenceBundle struct {
 	// PodEvents are warning events from a sample of pods stuck on a node.
 	// They are not the node's own events, which stay in Events.
 	PodEvents  []domain.EventRow
+	// NodeCapacity is cluster node GPU/CPU headroom for pod scheduling hints.
+	NodeCapacity []domain.NodeCapacity
 	Related    []domain.RelatedGroup
 	Inspect    *domain.ResourceInspect
 	Properties map[string]string

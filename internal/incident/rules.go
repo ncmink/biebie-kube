@@ -109,6 +109,10 @@ func podRules(bundle EvidenceBundle) []domain.IncidentFinding {
 		}
 	}
 
+	if finding, ok := insufficientGPUScheduling(bundle); ok {
+		out = append(out, finding)
+	}
+
 	for _, condition := range pod.Conditions {
 		if condition.Type == "PodScheduled" && condition.Status == "False" {
 			id := fmt.Sprintf("condition.%s", condition.Type)
@@ -136,6 +140,68 @@ func podRules(bundle EvidenceBundle) []domain.IncidentFinding {
 	}
 
 	return out
+}
+
+func insufficientGPUScheduling(bundle EvidenceBundle) (domain.IncidentFinding, bool) {
+	pod := bundle.Pod
+	if pod == nil || pod.Status != "Pending" {
+		return domain.IncidentFinding{}, false
+	}
+
+	var quotes []string
+	for _, event := range relevantEvents(bundle) {
+		if event.Reason != "FailedScheduling" {
+			continue
+		}
+		if !schedulingInsufficientGPU(event.Message) {
+			continue
+		}
+		quotes = append(quotes, truncate(event.Message, 240))
+	}
+	if len(quotes) == 0 {
+		return domain.IncidentFinding{}, false
+	}
+
+	facts := append([]string{}, quotes...)
+	for _, node := range bundle.NodeCapacity {
+		for _, gpu := range node.GPU {
+			if gpu.Allocatable <= 0 {
+				continue
+			}
+			free := gpu.Allocatable - gpu.Requested
+			if free < 0 {
+				free = 0
+			}
+			facts = append(facts, fmt.Sprintf("%s: %s %d/%d (%d free)", node.Name, gpu.Name, gpu.Requested, gpu.Allocatable, free))
+		}
+	}
+
+	return domain.IncidentFinding{
+		RuleID:          "pod.insufficient_gpu",
+		Severity:        domain.SeverityWarning,
+		Summary:         "Scheduling failed due to insufficient GPU capacity",
+		Explanation:     "The scheduler could not place this pod because no node had enough free GPU extended resources.",
+		ConfidenceClass: domain.IncidentConfidenceSupported,
+		ObservedFacts:   facts,
+		NextSteps: []string{
+			"Review GPU requests on this pod and running workloads",
+			"Check node capacity on GPU nodes in the cluster overview",
+			"Scale GPU nodes or release GPU workloads that are no longer needed",
+		},
+	}, true
+}
+
+func schedulingInsufficientGPU(message string) bool {
+	folded := strings.ToLower(message)
+	if !strings.Contains(folded, "insufficient") {
+		return false
+	}
+	for _, prefix := range []string{"nvidia.com/", "amd.com/", "gpu.intel.com/", "habana.ai/", "google.com/tpu"} {
+		if strings.Contains(message, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func nodeRules(bundle EvidenceBundle) []domain.IncidentFinding {

@@ -1,6 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
+import { allReleaseNotes, type ReleaseNote } from '@/releaseNotes'
 import { useSettingsStore, type Appearance } from '@/stores/settings'
 
 export type { Appearance } from '@/stores/settings'
@@ -11,6 +12,9 @@ export const useUIStore = defineStore('ui', () => {
   const paletteOpen = ref(false)
   const switcher = ref<SwitcherKind | null>(null)
   const shortcutsOpen = ref(false)
+  const whatsNewOpen = ref(false)
+  const whatsNewNotes = ref<ReleaseNote[]>([])
+  const whatsNewMarkOnDismiss = ref(false)
   const notice = ref<{ tone: 'ok' | 'bad'; text: string } | null>(null)
 
   let noticeTimer: number | undefined
@@ -45,6 +49,25 @@ export const useUIStore = defineStore('ui', () => {
     paletteOpen.value = false
     switcher.value = null
     shortcutsOpen.value = false
+    whatsNewOpen.value = false
+  }
+
+  function openWhatsNew(notes: ReleaseNote[], markOnDismiss = false) {
+    paletteOpen.value = false
+    switcher.value = null
+    shortcutsOpen.value = false
+    whatsNewNotes.value = notes
+    whatsNewMarkOnDismiss.value = markOnDismiss
+    whatsNewOpen.value = true
+  }
+
+  function openWhatsNewCatalog() {
+    openWhatsNew(allReleaseNotes(), false)
+  }
+
+  function closeWhatsNew() {
+    whatsNewOpen.value = false
+    whatsNewMarkOnDismiss.value = false
   }
 
   function openPalette() {
@@ -84,6 +107,9 @@ export const useUIStore = defineStore('ui', () => {
     paletteOpen,
     switcher,
     shortcutsOpen,
+    whatsNewOpen,
+    whatsNewNotes,
+    whatsNewMarkOnDismiss,
     notice,
     setAppearance,
     say,
@@ -94,6 +120,9 @@ export const useUIStore = defineStore('ui', () => {
     togglePalette,
     openSwitcher,
     toggleShortcutsSheet,
+    openWhatsNew,
+    openWhatsNewCatalog,
+    closeWhatsNew,
   }
 })
 

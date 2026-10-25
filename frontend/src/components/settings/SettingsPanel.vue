@@ -257,6 +257,13 @@ onMounted(loadMeta)
           >
             {{ checking ? 'Checking…' : 'Check for updates…' }}
           </button>
+          <button
+            type="button"
+            class="text-xs text-brand hover:underline"
+            @click="ui.openWhatsNewCatalog()"
+          >
+            What's new
+          </button>
         </div>
       </div>
     </section>

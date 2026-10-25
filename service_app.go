@@ -25,6 +25,53 @@ func (s *AppService) ServiceName() string { return "AppService" }
 // Version reports the application version, shown in Settings.
 func (s *AppService) Version() string { return appVersion }
 
+// ReleaseNotesState tells the frontend whether to show What's new on launch.
+type ReleaseNotesState struct {
+	Current      string `json:"current"`
+	LastSeen     string `json:"lastSeen"`
+	ShowSince    string `json:"showSince"`
+	ShouldPrompt bool   `json:"shouldPrompt"`
+}
+
+// ReleaseNotesState reports the running version and whether What's new should
+// open for versions after ShowSince and up to Current. An empty ShowSince
+// includes every bundled note up to Current.
+func (s *AppService) ReleaseNotesState() ReleaseNotesState {
+	current := appVersion
+	data := s.core.store.Read()
+	lastSeen := data.LastSeenVersion
+
+	state := ReleaseNotesState{
+		Current:  current,
+		LastSeen: lastSeen,
+	}
+
+	if lastSeen != "" && update.CompareVersions(current, lastSeen) <= 0 {
+		return state
+	}
+
+	if lastSeen == "" && !data.HasPriorUse() {
+		_ = s.markReleaseNotesSeen()
+		return state
+	}
+
+	state.ShouldPrompt = true
+	state.ShowSince = lastSeen
+	return state
+}
+
+// MarkReleaseNotesSeen records that the user dismissed What's new for this version.
+func (s *AppService) MarkReleaseNotesSeen() error {
+	return s.markReleaseNotesSeen()
+}
+
+func (s *AppService) markReleaseNotesSeen() error {
+	return s.core.store.Update(func(data *store.Data) error {
+		data.LastSeenVersion = appVersion
+		return nil
+	})
+}
+
 // StatePath reports where Biebie Kube keeps its own data.
 func (s *AppService) StatePath() string { return s.core.store.Path() }
 

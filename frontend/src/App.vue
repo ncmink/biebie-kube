@@ -6,6 +6,7 @@ import CommandPalette from '@/components/common/CommandPalette.vue'
 import NavigationSwitchers from '@/components/common/NavigationSwitchers.vue'
 import SettingsModal from '@/components/settings/SettingsModal.vue'
 import ShortcutCheatSheet from '@/components/common/ShortcutCheatSheet.vue'
+import WhatsNewModal from '@/components/common/WhatsNewModal.vue'
 import TitleBar from '@/components/common/TitleBar.vue'
 import { useGlobalShortcuts } from '@/composables/useGlobalShortcuts'
 import { useResume } from '@/composables/useResume'
@@ -15,6 +16,7 @@ import { useClusterStore } from '@/stores/clusters'
 import { usePortForwardStore } from '@/stores/sessions'
 import { useResourceStore } from '@/stores/resources'
 import { useSettingsStore } from '@/stores/settings'
+import { notesSince } from '@/releaseNotes'
 import { useUIStore } from '@/stores/ui'
 
 const clusters = useClusterStore()
@@ -70,6 +72,20 @@ onMounted(async () => {
   // on: Go holds it until this call, so a handoff is never consumed into a
   // window that was not yet listening.
   void api.ready(settings.snapshot.general.autoCheckUpdates)
+
+  try {
+    const state = await api.releaseNotesState()
+    if (state.shouldPrompt) {
+      const pending = notesSince(state.showSince ?? '', state.current)
+      if (pending.length > 0) {
+        ui.openWhatsNew(pending, true)
+      } else {
+        await api.markReleaseNotesSeen()
+      }
+    }
+  } catch {
+    // What's new is optional; a failed read should not block the app.
+  }
 })
 
 </script>
@@ -82,6 +98,7 @@ onMounted(async () => {
     <CommandPalette />
     <NavigationSwitchers />
     <ShortcutCheatSheet />
+    <WhatsNewModal />
     <SettingsModal />
   </div>
 </template>

@@ -11,7 +11,8 @@ Examples below ship `v0.2.5`. Substitute your version.
 ## The short version
 
 ```bash
-# 1. bump: build/config.yml → info.version, core.go → appVersion
+# 1. bump: build/config.yml → info.version, core.go → appVersion,
+#    frontend/src/releaseNotes.ts → new entry for this version
 wails3 task common:update:build-assets
 # 2. restore CFBundleURLName in both darwin plists (see step 1)
 git diff -U0 | grep -E '^[+-][^+-]' | sort -u
@@ -44,11 +45,16 @@ Edit two files by hand:
 | --- | --- |
 | `build/config.yml` | `info.version` |
 | `core.go` | `appVersion` |
+| `frontend/src/releaseNotes.ts` | Newest `releaseNotes` entry (What's new modal) |
 
 `appVersion` is what the updater compares against GitHub Releases. A build that
 forgets it will offer itself an update forever. Release builds also stamp it
 through `-X main.appVersion=…` from the tag, but the checked-in value is what
 `wails3 dev` and any local package report.
+
+Copy the same bullet list into the GitHub Release description when you publish
+the draft. Users see it in the app after they update; the release page is for
+anyone reading on the web.
 
 Then generate the platform manifests instead of editing them:
 

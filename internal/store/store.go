@@ -47,11 +47,20 @@ type Data struct {
 	// Automatic checks are throttled so shared IPs do not exhaust the
 	// unauthenticated rate limit.
 	LastUpdateCheckAt string `json:"lastUpdateCheckAt,omitempty"`
+
+	// LastSeenVersion is the app version the user dismissed What's new for.
+	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
 }
 
 // AutoImportEnabled reports whether new kubeconfig contexts should become
 // clusters on their own.
 func (d Data) AutoImportEnabled() bool { return d.AutoImport == nil || *d.AutoImport }
+
+// HasPriorUse reports whether this installation existed before the current
+// session, used to distinguish a fresh install from an upgrade.
+func (d Data) HasPriorUse() bool {
+	return len(d.Clusters) > 0 || len(d.Kubeconfigs) > 0 || d.LastUpdateCheckAt != ""
+}
 
 // CurrentVersion is the schema version written by this build.
 const CurrentVersion = 2

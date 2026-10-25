@@ -41,6 +41,8 @@ export const api = {
   version: AppService.Version,
   statePath: AppService.StatePath,
   checkForUpdate: AppService.CheckForUpdate,
+  releaseNotesState: AppService.ReleaseNotesState,
+  markReleaseNotesSeen: AppService.MarkReleaseNotesSeen,
 
   listClusters: list(ClusterService.ListClusters),
   getCluster: ClusterService.GetCluster,

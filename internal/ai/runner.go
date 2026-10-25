@@ -10,9 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -89,9 +87,7 @@ func (r *Runner) Run(parent context.Context, sessionID string, argv []string, st
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workDir
 	cmd.Env = filteredEnvironment()
-	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
+	setCmdProcessGroup(cmd)
 
 	if stdinBody != "" {
 		cmd.Stdin = bytes.NewReader([]byte(stdinBody))
@@ -155,17 +151,6 @@ func (r *Runner) Run(parent context.Context, sessionID string, argv []string, st
 	}
 	r.emitter.Emit(EventDone, map[string]string{"sessionId": sessionID})
 	return nil
-}
-
-// KillProcessGroup stops the child process group on Unix.
-func killProcess(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return nil
-	}
-	if runtime.GOOS == "windows" {
-		return cmd.Process.Kill()
-	}
-	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
 // ExecutablePath validates a custom command path.

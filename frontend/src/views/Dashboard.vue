@@ -86,7 +86,7 @@ const menuItems = computed<ContextMenuItem[]>(() => {
       divider: true,
     })
   }
-  items.push({ id: 'remove', label: 'Remove from Biebie Kube…', danger: true, divider: true })
+  items.push({ id: 'remove', label: 'Remove from BiebieKube…', danger: true, divider: true })
   return items
 })
 
@@ -144,7 +144,7 @@ async function setArchived(cluster: Cluster, archived: boolean) {
 async function connectAccess(cluster: Cluster) {
   try {
     await clusters.connectWithAccess(cluster)
-    ui.say('Asked Biebie Access to connect this customer. Biebie Kube will retry on its own.')
+    ui.say('Asked Biebie Access to connect this customer. BiebieKube will retry on its own.')
   } catch (err) {
     ui.say(message(err), 'bad')
   }
@@ -207,7 +207,7 @@ async function remove() {
       <div v-if="!clusters.clusters.length" class="mt-10 rounded-2xl border border-dashed border-line px-8 py-14 text-center">
         <p class="text-sm font-medium text-ink">No clusters yet</p>
         <p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-muted">
-          Import a kubeconfig and pick the contexts you work with. Biebie Kube reads your kubeconfig
+          Import a kubeconfig and pick the contexts you work with. BiebieKube reads your kubeconfig
           and never writes to it.
         </p>
         <button
@@ -294,7 +294,7 @@ async function remove() {
 
     <ConfirmDialog
       :open="Boolean(removing)"
-      title="Remove this cluster from Biebie Kube?"
+      title="Remove this cluster from BiebieKube?"
       detail="Only Biebie's record is removed. Your kubeconfig is left exactly as it is."
       :cluster="removing ?? undefined"
       confirm-label="Remove"

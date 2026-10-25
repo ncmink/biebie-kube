@@ -38,7 +38,7 @@ onMounted(async () => {
              unlabelled rather than having a screen reader read the name twice. -->
         <img :src="logo" alt="" class="size-7 shrink-0" />
         <span class="flex items-baseline gap-1.5">
-          <span class="text-sm font-semibold tracking-tight">Biebie Kube</span>
+          <span class="text-sm font-semibold tracking-tight">BiebieKube</span>
           <span v-if="version" class="font-mono text-[10px] text-ink-faint">v{{ version }}</span>
         </span>
       </RouterLink>

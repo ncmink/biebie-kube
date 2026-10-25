@@ -55,7 +55,7 @@ async function check() {
  * happens when an editor opens.
  *
  * It is the only npm install in the application, it runs against a package.json
- * Biebie Kube wrote, and it reaches the network. All three are reasons for it
+ * BiebieKube wrote, and it reaches the network. All three are reasons for it
  * to be something a person chose rather than something they triggered by
  * pressing Preview.
  */
@@ -89,7 +89,7 @@ onMounted(check)
       </button>
     </div>
     <p class="mt-1 text-xs text-ink-muted">
-      Biebie Kube uses the Node.js, npm and cdk8s already installed on this machine. It neither
+      BiebieKube uses the Node.js, npm and cdk8s already installed on this machine. It neither
       bundles nor downloads them.
     </p>
 
@@ -139,7 +139,7 @@ onMounted(check)
 
       <p v-if="runtime.reason" class="mt-1.5 text-xs text-ink-muted">{{ runtime.reason }}</p>
       <p v-if="runtime.typescript && !runtime.prepared" class="mt-1.5 text-[11px] text-ink-faint">
-        This installs a fixed set of packages into a workspace Biebie Kube manages. It runs once,
+        This installs a fixed set of packages into a workspace BiebieKube manages. It runs once,
         it reaches the npm registry, and nothing typed into an editor can add to the list.
       </p>
 

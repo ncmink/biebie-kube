@@ -203,7 +203,7 @@ async function revealConfig() {
     </div>
 
     <p class="mt-2 text-[11px] leading-relaxed text-ink-faint">
-      Running the copied command in your own terminal answers something Biebie Kube cannot answer
+      Running the copied command in your own terminal answers something BiebieKube cannot answer
       about itself: whether your shell can read this repository when this window cannot.
     </p>
 

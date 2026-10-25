@@ -58,7 +58,7 @@ const accessButton = computed(() => {
 async function connectAccess() {
   try {
     await clusters.connectWithAccess(props.cluster)
-    ui.say('Asked Biebie Access to connect this customer. Biebie Kube will retry on its own.')
+    ui.say('Asked Biebie Access to connect this customer. BiebieKube will retry on its own.')
   } catch (error) {
     ui.say(message(error), 'bad')
   }

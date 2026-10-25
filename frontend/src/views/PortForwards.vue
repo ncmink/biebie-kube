@@ -48,7 +48,7 @@ const grouped = computed<Group[]>(() => {
       clusterId,
       cluster,
       customer: cluster?.customerName || cluster?.customerId || '',
-      // A cluster removed from Biebie Kube while its forward was running has
+      // A cluster removed from BiebieKube while its forward was running has
       // no record left to read, and its identifier is a UUID nobody
       // recognises. Go denormalised the name onto the session for exactly
       // this moment.
@@ -215,7 +215,7 @@ onMounted(() => void sessions.load())
       <!-- A forward whose cluster was removed cannot be navigated to, and the
            row is the only place left that says which customer it reaches. -->
       <p v-if="!group.cluster" class="mt-1 px-1.5 text-[11px] text-ink-faint">
-        This cluster is no longer configured in Biebie Kube. The forward keeps running until it is
+        This cluster is no longer configured in BiebieKube. The forward keeps running until it is
         stopped.
       </p>
 

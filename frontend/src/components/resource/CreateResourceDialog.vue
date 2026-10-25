@@ -437,7 +437,7 @@ watch(() => [props.clusterId, props.namespace, props.kind], load, { immediate: t
           ? `Create ${resources[0]?.kind} ${resources[0]?.name}?`
           : `Create ${resources.length} resources?`
       "
-      detail="This writes straight to the live cluster. Biebie Kube does not record it in Git, and Kubernetes has no transaction across objects — if one fails after others were created, what was created stays."
+      detail="This writes straight to the live cluster. BiebieKube does not record it in Git, and Kubernetes has no transaction across objects — if one fails after others were created, what was created stays."
       :cluster="cluster"
       confirm-label="Create"
       :require-typing="confirmName"

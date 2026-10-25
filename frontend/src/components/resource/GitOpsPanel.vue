@@ -477,7 +477,7 @@ function openApplication() {
       -->
       <template v-if="unknown">
         <p class="mt-2 text-[11px] leading-relaxed text-ink-muted">
-          Biebie Kube could not determine whether Argo CD manages this object.
+          BiebieKube could not determine whether Argo CD manages this object.
         </p>
 
         <dl v-if="why" class="mt-2.5 grid grid-cols-[8.5rem_1fr] gap-2 text-xs">
@@ -828,7 +828,7 @@ function openApplication() {
         {{ ownership.reason }}
       </p>
       <p v-if="!managed && !unknown" class="mt-1 text-[11px] leading-relaxed text-ink-faint">
-        Direct cluster changes are available. Biebie Kube will not record them in Git.
+        Direct cluster changes are available. BiebieKube will not record them in Git.
       </p>
     </template>
   </section>

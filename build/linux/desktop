@@ -1,6 +1,6 @@
 [Desktop Entry]
 Version=1.0
-Name=Biebie Kube
+Name=BiebieKube
 Comment=Kubernetes workspace for the biebie.net family.
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/biebie-kube %u

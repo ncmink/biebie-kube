@@ -76,7 +76,7 @@ func main() {
 	appService := &AppService{core: core, links: links}
 
 	app := application.New(application.Options{
-		Name:        "Biebie Kube",
+		Name:        "BiebieKube",
 		Description: "Kubernetes workspace for the biebie.net family.",
 		Services: []application.Service{
 			application.NewService(appService),
@@ -126,7 +126,7 @@ func main() {
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      mainWindow,
-		Title:     "Biebie Kube",
+		Title:     "BiebieKube",
 		Width:     1440,
 		Height:    900,
 		MinWidth:  1100,

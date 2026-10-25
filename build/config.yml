@@ -6,7 +6,7 @@ version: '3'
 # This information is used to generate the build assets.
 info:
   companyName: "Biebie"
-  productName: "Biebie Kube"
+  productName: "BiebieKube"
   productIdentifier: "net.biebie.kube"
   description: "Kubernetes workspace for the biebie.net family."
   copyright: "© 2026, Biebie"
@@ -59,4 +59,4 @@ fileAssociations:
 # that the whole handoff depends on.
 protocols:
   - scheme: biebie-kube
-    description: "Biebie Kube cluster handoff"
+    description: "BiebieKube cluster handoff"

@@ -19,7 +19,7 @@ export const releaseNotes: ReleaseNote[] = [
       {
         title: "What's new after you update",
         detail:
-          'When you install a new version, Biebie Kube shows a short summary of changes. Open it again anytime from Settings.',
+          'When you install a new version, BiebieKube shows a short summary of changes. Open it again anytime from Settings.',
       },
     ],
   },
@@ -40,7 +40,7 @@ export const releaseNotes: ReleaseNote[] = [
       {
         title: 'Expired sessions stop reconnecting',
         detail:
-          'When your cluster session ends, Biebie Kube stops retrying in the background and shows a clear reconnect prompt.',
+          'When your cluster session ends, BiebieKube stops retrying in the background and shows a clear reconnect prompt.',
       },
       {
         title: 'Keyboard-friendly menus',

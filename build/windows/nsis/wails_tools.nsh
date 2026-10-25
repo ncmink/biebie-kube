@@ -11,7 +11,7 @@
     !define INFO_COMPANYNAME "Biebie"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "Biebie Kube"
+    !define INFO_PRODUCTNAME "BiebieKube"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "0.2.22"
@@ -253,7 +253,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 !macro wails.associateCustomProtocols
     ; Create custom protocols associations
     
-      !insertmacro CUSTOM_PROTOCOL_ASSOCIATE "biebie-kube" "Biebie Kube cluster handoff" "$INSTDIR\${PRODUCT_EXECUTABLE},0" "$INSTDIR\${PRODUCT_EXECUTABLE} $\"%1$\""
+      !insertmacro CUSTOM_PROTOCOL_ASSOCIATE "biebie-kube" "BiebieKube cluster handoff" "$INSTDIR\${PRODUCT_EXECUTABLE},0" "$INSTDIR\${PRODUCT_EXECUTABLE} $\"%1$\""
     
 !macroend
 

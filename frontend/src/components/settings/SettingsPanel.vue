@@ -248,7 +248,7 @@ onMounted(loadMeta)
 
         <span class="pt-1 text-right font-medium text-ink-muted">Version:</span>
         <div class="flex flex-wrap items-center gap-3">
-          <span class="font-mono text-sm text-ink">Biebie Kube {{ version || '—' }}</span>
+          <span class="font-mono text-sm text-ink">BiebieKube {{ version || '—' }}</span>
           <button
             type="button"
             class="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted hover:text-ink disabled:opacity-50"

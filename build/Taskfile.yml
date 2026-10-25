@@ -196,12 +196,38 @@ tasks:
     dir: build
     sources:
       - "appicon.png"
-      - "appicon.icon"
+      - "appicon.icon/**/*"
     generates:
       - "darwin/icons.icns"
+      - "darwin/Assets.car"
       - "windows/icon.ico"
     cmds:
       - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
+      - task: sync:dev:app:icons
+
+  sync:dev:app:icons:
+    summary: Refreshes Dock icons in bin/*.dev.app after generate:icons (macOS dev)
+    internal: true
+    platforms: [darwin]
+    dir: build
+    cmds:
+      - |
+        DEV_APP="../bin/{{.APP_NAME}}.dev.app"
+        if [ ! -d "$DEV_APP/Contents" ]; then
+          exit 0
+        fi
+        mkdir -p "$DEV_APP/Contents/Resources" "$DEV_APP/Contents/MacOS"
+        cp darwin/icons.icns "$DEV_APP/Contents/Resources/"
+        if [ -f darwin/Assets.car ]; then
+          cp darwin/Assets.car "$DEV_APP/Contents/Resources/"
+        fi
+        if [ -f "../bin/{{.APP_NAME}}" ]; then
+          cp "../bin/{{.APP_NAME}}" "$DEV_APP/Contents/MacOS/"
+        fi
+        if [ -f darwin/Info.dev.plist ]; then
+          cp darwin/Info.dev.plist "$DEV_APP/Contents/Info.plist"
+        fi
+        codesign --force --deep --sign - "$DEV_APP" 2>/dev/null || true
 
   dev:port:free:
     summary: Frees the Vite dev port if a previous dev run left it held

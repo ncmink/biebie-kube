@@ -3,7 +3,7 @@
 <plist version="1.0">
 	<dict>
 		<key>CFBundleDisplayName</key>
-		<string>Biebie Kube Dev</string>
+		<string>BiebieKube Dev</string>
 		<key>CFBundleExecutable</key>
 		<string>biebie-kube</string>
 		<key>CFBundleGetInfoString</key>
@@ -15,7 +15,7 @@
 		<key>CFBundleIdentifier</key>
 		<string>net.biebie.kube</string>
 		<key>CFBundleName</key>
-		<string>Biebie Kube</string>
+		<string>BiebieKube</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>

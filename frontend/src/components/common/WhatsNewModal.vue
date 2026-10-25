@@ -13,11 +13,11 @@ const notes = computed(() => ui.whatsNewNotes)
 
 const headline = computed(() => {
   const list = notes.value
-  if (list.length === 1) return `What's new in Biebie Kube ${list[0].version}`
+  if (list.length === 1) return `What's new in BiebieKube ${list[0].version}`
   if (list.length > 1) {
     const oldest = list[list.length - 1]?.version
     const newest = list[0]?.version
-    return `What's new in Biebie Kube ${oldest}–${newest}`
+    return `What's new in BiebieKube ${oldest}–${newest}`
   }
   return "What's new"
 })

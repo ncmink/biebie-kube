@@ -390,7 +390,7 @@ async function save() {
             <span>
               <span class="text-sm text-ink">This cluster needs a customer network</span>
               <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">
-                Biebie Kube will ask Biebie Access whether the profile is connected before it tries
+                BiebieKube will ask Biebie Access whether the profile is connected before it tries
                 Kubernetes, and will retry by itself once it comes up. Leave this off for local
                 clusters.
               </span>

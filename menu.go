@@ -8,7 +8,7 @@ import (
 func buildApplicationMenu(appService *AppService) *application.Menu {
 	menu := application.NewMenu()
 
-	app := menu.AddSubmenu("Biebie Kube")
+	app := menu.AddSubmenu("BiebieKube")
 	app.AddRole(application.About)
 	app.AddSeparator()
 	app.Add("Check for Updates…").OnClick(func(_ *application.Context) {

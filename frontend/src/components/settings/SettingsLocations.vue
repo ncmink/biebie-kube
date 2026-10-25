@@ -42,7 +42,7 @@ async function importChosen() {
     ui.say(
       copyIn.value
         ? 'Imported a copy. The original file is untouched.'
-        : 'Imported. Biebie Kube reads this file where it lives.',
+        : 'Imported. BiebieKube reads this file where it lives.',
     )
   } catch (err) {
     ui.say(message(err), 'bad')
@@ -88,7 +88,7 @@ onMounted(load)
         </div>
       </div>
       <p class="mt-1 text-xs text-ink-muted">
-        Biebie Kube reads and indexes these files. It never rewrites the original unless you ask it to.
+        BiebieKube reads and indexes these files. It never rewrites the original unless you ask it to.
       </p>
 
       <ul class="mt-3 space-y-2">

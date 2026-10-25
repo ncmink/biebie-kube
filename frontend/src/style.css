@@ -165,3 +165,26 @@ button {
     transparent 8px 16px
   );
 }
+
+@keyframes ask-ai-sparkle {
+  0%,
+  100% {
+    transform: rotate(-8deg) scale(1);
+  }
+  50% {
+    transform: rotate(8deg) scale(1.12);
+  }
+}
+
+.ask-ai-btn:hover .ask-ai-sparkle-icon,
+.ask-ai-btn:focus-visible .ask-ai-sparkle-icon {
+  animation: ask-ai-sparkle 0.55s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-ai-btn:hover .ask-ai-sparkle-icon,
+  .ask-ai-btn:focus-visible .ask-ai-sparkle-icon {
+    animation: none;
+  }
+}

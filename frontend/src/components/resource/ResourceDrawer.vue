@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import AskAIPanel from '@/components/resource/AskAIPanel.vue'
 import ConfigData from '@/components/resource/ConfigData.vue'
 import EventList from '@/components/resource/EventList.vue'
 import GitOpsPanel from '@/components/resource/GitOpsPanel.vue'
@@ -14,6 +15,7 @@ import { agoClock } from '@/composables/format'
 import { asKind, singularTitle } from '@/composables/kind'
 import { Kind } from '@/types'
 import type { ResourceInspect, ResourceRef, ResourceRow } from '@/types'
+import { useAIStore } from '@/stores/ai'
 import { useClusterStore } from '@/stores/clusters'
 
 const YamlEditor = defineAsyncComponent(() => import('@/components/yaml/YamlEditor.vue'))
@@ -32,6 +34,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; menu: [event: MouseEvent]; delete: [] }>()
 
 const clusters = useClusterStore()
+const ai = useAIStore()
 const router = useRouter()
 
 const cluster = computed(() => clusters.clusters.find((c) => c.id === props.clusterId))
@@ -63,6 +66,8 @@ const inspect = ref<ResourceInspect | null>(null)
 const error = ref('')
 const loading = ref(false)
 const yamlOpen = ref(false)
+const aiOpen = ref(false)
+const aiPrompt = ref('')
 const labelsOpen = ref(false)
 const annotationsOpen = ref(false)
 
@@ -137,6 +142,29 @@ async function load(opts?: { quiet?: boolean }) {
   }
 }
 
+function toggleYaml() {
+  yamlOpen.value = !yamlOpen.value
+  if (yamlOpen.value) aiOpen.value = false
+}
+
+function toggleAI() {
+  aiOpen.value = !aiOpen.value
+  if (aiOpen.value) yamlOpen.value = false
+}
+
+function askAbout(prompt: string) {
+  aiPrompt.value = prompt
+  yamlOpen.value = false
+  aiOpen.value = true
+}
+
+// The answer belongs to the resource it was asked about; carrying it over to
+// the next row would read as an answer about that one.
+function forgetAnswer() {
+  if (ai.streaming) void ai.cancel()
+  ai.resetDrawer()
+}
+
 function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') emit('close')
 }
@@ -148,6 +176,9 @@ watch(
   () => [props.clusterId, props.kind, props.row.name, props.row.namespace],
   () => {
     yamlOpen.value = false
+    aiOpen.value = false
+    aiPrompt.value = ''
+    forgetAnswer()
     labelsOpen.value = false
     annotationsOpen.value = false
     inspect.value = null
@@ -199,9 +230,30 @@ watch(
           </svg>
         </button>
         <button
-          class="rounded-lg p-1.5 text-ink-faint hover:bg-surface-3 hover:text-ink"
+          type="button"
+          class="ask-ai-btn inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition"
+          :class="
+            aiOpen
+              ? 'bg-brand-strong text-surface-1 ring-2 ring-brand/50'
+              : 'bg-brand text-surface-1 hover:bg-brand-strong'
+          "
+          title="Ask AI"
+          aria-label="Ask AI"
+          :aria-pressed="aiOpen"
+          @click="toggleAI"
+        >
+          <svg viewBox="0 0 24 24" class="ask-ai-sparkle-icon size-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 3 1.2 3.6L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.4Z" />
+            <path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8Z" />
+            <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z" />
+          </svg>
+          <span>Ask AI</span>
+        </button>
+        <button
+          class="rounded-lg p-1.5 hover:bg-surface-3 hover:text-ink"
+          :class="yamlOpen ? 'bg-surface-3 text-ink' : 'text-ink-faint'"
           title="Edit YAML"
-          @click="yamlOpen = !yamlOpen"
+          @click="toggleYaml"
         >
           <svg viewBox="0 0 24 24" class="size-4" fill="none" aria-hidden="true">
             <path
@@ -241,6 +293,10 @@ watch(
 
     <div v-if="yamlOpen && ref_" class="min-h-0 flex-1">
       <YamlEditor :cluster-id="clusterId" :resource="ref_" :cluster="cluster" />
+    </div>
+
+    <div v-else-if="aiOpen && ref_" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <AskAIPanel :cluster-id="clusterId" :resource="ref_" :initial-prompt="aiPrompt" />
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -327,7 +383,13 @@ watch(
 
         <GitOpsPanel v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 
-        <IncidentPanel v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
+        <IncidentPanel
+          v-if="ref_"
+          class="mt-6"
+          :cluster-id="clusterId"
+          :resource="ref_"
+          @ask-ai="askAbout"
+        />
 
         <RelatedGroups v-if="ref_" class="mt-6" :cluster-id="clusterId" :resource="ref_" />
 

@@ -78,7 +78,7 @@ Pointers use repo paths under `biebie-kube/`.
 |-----------|--------|-------|
 | Extensions / Marketplace | **Excluded** | Not a platform for third-party UI |
 | Helm Releases UI | **Excluded** | GitOps via Argo CD path instead |
-| AI features in Lens | **Excluded** | — |
+| AI features in Lens | **Have** | Local CLI Ask AI (not Lens cloud); resource-scoped context only |
 
 ---
 

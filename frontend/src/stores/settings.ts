@@ -19,6 +19,7 @@ export type SettingsTab =
   | 'fonts'
   | 'locations'
   | 'authoring'
+  | 'ai'
   | 'keymap'
 
 export type FontsSurface = 'editor' | 'table' | 'application'

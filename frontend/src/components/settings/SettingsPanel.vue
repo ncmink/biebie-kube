@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 import ResourceAuthoring from '@/components/settings/ResourceAuthoring.vue'
+import SettingsAI from '@/components/settings/SettingsAI.vue'
 import SettingsFontsThemes from '@/components/settings/SettingsFontsThemes.vue'
 import SettingsLocations from '@/components/settings/SettingsLocations.vue'
 import { shortcutCatalog } from '@/composables/shortcutCatalog'
@@ -28,6 +29,7 @@ const tabs: { id: SettingsTab; label: string }[] = [
   { id: 'fonts', label: 'Fonts & Themes' },
   { id: 'locations', label: 'Locations' },
   { id: 'authoring', label: 'Authoring' },
+  { id: 'ai', label: 'AI' },
   { id: 'keymap', label: 'Keymap' },
 ]
 
@@ -131,6 +133,13 @@ onMounted(loadMeta)
           <rect x="6" y="6" width="12" height="12" rx="2" />
           <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
           <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+        </svg>
+
+        <!-- AI: Sparkle icon -->
+        <svg v-else-if="tab.id === 'ai'" viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m12 3 1.2 3.6L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.4Z" />
+          <path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8Z" />
+          <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z" />
         </svg>
 
         <!-- Keymap: Keyboard icon -->
@@ -419,6 +428,10 @@ onMounted(loadMeta)
     <!-- AUTHORING TAB -->
     <div v-else-if="settings.activeTab === 'authoring'" class="mx-auto max-w-2xl [&>section]:mt-0">
       <ResourceAuthoring />
+    </div>
+
+    <div v-else-if="settings.activeTab === 'ai'" class="mx-auto max-w-2xl">
+      <SettingsAI />
     </div>
 
     <!-- KEYMAP TAB: TablePlus-style centered group cards with pill shortcut badges -->

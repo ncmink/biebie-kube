@@ -88,6 +88,7 @@ func main() {
 			application.NewService(&ArgoCDService{core: core}),
 			application.NewService(&GitOpsService{core: core}),
 			application.NewService(&AuthoringService{core: core}),
+			application.NewService(&AIService{core: core}),
 			application.NewService(accessService),
 		},
 		Assets: application.AssetOptions{

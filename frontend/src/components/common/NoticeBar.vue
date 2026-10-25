@@ -13,7 +13,7 @@ const ui = useUIStore()
   >
     <div
       v-if="ui.notice"
-      class="fixed bottom-5 left-1/2 z-40 max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-xl"
+      class="fixed bottom-5 left-1/2 z-[80] max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-xl"
       :class="
         ui.notice.tone === 'bad'
           ? 'border-bad/40 bg-bad/15 text-ink'

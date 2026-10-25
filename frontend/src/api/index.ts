@@ -10,6 +10,7 @@ import { Browser, CancellablePromise, Clipboard, Events } from '@wailsio/runtime
 
 import {
   AccessService,
+  AIService,
   AppService,
   ArgoCDService,
   AuthoringService,
@@ -104,6 +105,14 @@ export const api = {
   search: list(ResourceService.SearchResources),
   explainResource: ResourceService.ExplainResource,
 
+  listCLIs: list(AIService.ListCLIs),
+  aiSettings: AIService.AISettings,
+  setAISettings: AIService.SetAISettings,
+  acknowledgeCLI: AIService.AcknowledgeCLI,
+  askAI: AIService.AskAI,
+  previewAskAI: AIService.PreviewAskAI,
+  cancelAskAI: AIService.CancelAskAI,
+
   // Resource authoring. Every entry is a domain operation: there is
   // deliberately nothing here that takes an executable and arguments.
   authoringRuntime: AuthoringService.AuthoringRuntime,
@@ -186,7 +195,16 @@ export const events = {
   openCluster: 'app:openCluster',
   handoffFailed: 'app:handoffFailed',
   openSettings: 'app:openSettings',
+  aiChunk: 'ai:chunk',
+  aiDone: 'ai:done',
+  aiError: 'ai:error',
 } as const
+
+export type AIStreamPayload = {
+  sessionId: string
+  text?: string
+  error?: string
+}
 
 /** on subscribes to a Go event and returns the unsubscribe function. */
 export function on<E extends Events.WailsEventName>(

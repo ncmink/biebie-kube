@@ -19,6 +19,7 @@ import (
 	bctx "github.com/ncmink/biebie-protocol/context"
 
 	"biebie-kube/internal/access"
+	"biebie-kube/internal/ai"
 	"biebie-kube/internal/argocd"
 	"biebie-kube/internal/authoring"
 	"biebie-kube/internal/autoimport"
@@ -88,6 +89,7 @@ type Core struct {
 	authoring *authoring.Service
 	policy    *policy.Service
 	incident  *incident.Service
+	ai        *ai.Service
 	views     *views.Repository
 
 	// reveal shows a file in the platform's file manager. It is here rather
@@ -159,6 +161,7 @@ func NewCore() (*Core, error) {
 		func(p domain.OperationPolicy) { emit(policy.EventPolicyChanged, p) },
 	)
 	core.incident = incident.NewService(core.clusters, core.resources)
+	core.ai = ai.NewService(st, core.resources, core.incident, events)
 
 	// Opening the Argo CD UI is a port forward like any other, so the Argo CD
 	// service borrows the one that already owns them rather than dialling a
@@ -229,6 +232,9 @@ func (c *Core) Start(onLink func(string)) {
 // Stop releases every session before the process exits, so no port forward or
 // exec stream is left holding a socket.
 func (c *Core) Stop() {
+	if c.ai != nil {
+		c.ai.CloseAll()
+	}
 	c.forwards.StopAll()
 	c.terminals.CloseAll()
 	c.logs.StopAll()

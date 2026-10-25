@@ -13,6 +13,17 @@ export interface ReleaseNote {
 /** Newest first. Add an entry when shipping a user-visible release. */
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: '0.2.23',
+    date: '2026-10-25',
+    highlights: [
+      {
+        title: 'Ask AI with your local CLI',
+        detail:
+          'From a resource drawer, send scrubbed YAML and Explain Why context to Claude Code, Codex, Gemini CLI, or a custom command. Answers stream in the app; nothing goes through a Biebie cloud.',
+      },
+    ],
+  },
+  {
     version: '0.2.22',
     date: '2026-03-25',
     highlights: [

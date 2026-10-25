@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import StateDot from '@/components/common/StateDot.vue'
 import EventList from '@/components/resource/EventList.vue'
+import AskAIPanel from '@/components/resource/AskAIPanel.vue'
 import IncidentPanel from '@/components/resource/IncidentPanel.vue'
 import LogViewer from '@/components/logs/LogViewer.vue'
 import PodDetails from '@/components/workload/PodDetails.vue'
@@ -21,11 +22,13 @@ import type { ContainerPort, PodDetail, ResourceRef } from '@/types'
 const PodTerminal = defineAsyncComponent(() => import('@/components/terminal/PodTerminal.vue'))
 const YamlEditor = defineAsyncComponent(() => import('@/components/yaml/YamlEditor.vue'))
 import { useResourceDetailShortcuts } from '@/composables/useResourceDetailShortcuts'
+import { useAIStore } from '@/stores/ai'
 import { useClusterStore } from '@/stores/clusters'
 import { useUIStore } from '@/stores/ui'
 
 const props = defineProps<{ clusterId: string; kind: string; namespace: string; name: string }>()
 
+const ai = useAIStore()
 const clusters = useClusterStore()
 const ui = useUIStore()
 const router = useRouter()
@@ -60,9 +63,9 @@ const explainable = computed(() => {
 
 const tabs = computed(() => {
   if (!resourceKind.value) return []
-  if (isPod.value) return ['Overview', 'Logs', 'Terminal', 'YAML', 'Events', 'Explain']
-  if (explainable.value) return ['YAML', 'Events', 'Explain']
-  return ['YAML', 'Events']
+  if (isPod.value) return ['Overview', 'Logs', 'Terminal', 'YAML', 'Events', 'Explain', 'Ask AI']
+  if (explainable.value) return ['YAML', 'Events', 'Explain', 'Ask AI']
+  return ['YAML', 'Events', 'Ask AI']
 })
 
 // The catalogue holds the word the engineer wrote in their own manifests, which
@@ -83,6 +86,7 @@ function pickTab(): string {
 }
 
 const tab = ref(pickTab())
+const askAIPrompt = ref('')
 const deleting = ref(false)
 const forwarding = ref(false)
 const podDetail = ref<PodDetail | null>(null)
@@ -92,6 +96,9 @@ watch(
   () => [props.clusterId, props.kind, props.namespace, props.name],
   () => {
     tab.value = pickTab()
+    askAIPrompt.value = ''
+    if (ai.streaming) void ai.cancel()
+    ai.resetDrawer()
     void loadPod()
   },
 )
@@ -191,6 +198,19 @@ async function remove() {
         </nav>
 
         <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="ask-ai-btn inline-flex items-center gap-1.5 rounded-lg bg-brand px-2.5 py-1 text-xs font-semibold text-surface-1 transition hover:bg-brand-strong"
+            @click="tab = 'Ask AI'"
+          >
+            <svg viewBox="0 0 24 24" class="ask-ai-sparkle-icon size-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+              <path d="m12 3 1.2 3.6L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.4Z" />
+              <path d="M5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8Z" />
+              <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z" />
+            </svg>
+            <span>Ask AI</span>
+          </button>
+
           <button
             v-if="isPod"
             class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-muted transition hover:border-brand/40 hover:text-ink"
@@ -327,7 +347,19 @@ async function remove() {
         :involving="name"
       />
       <div v-else-if="tab === 'Explain' && ref_" class="h-full overflow-y-auto px-6 py-4">
-        <IncidentPanel :cluster-id="clusterId" :resource="ref_" />
+        <IncidentPanel
+          :cluster-id="clusterId"
+          :resource="ref_"
+          @ask-ai="
+            (prompt) => {
+              askAIPrompt = prompt
+              tab = 'Ask AI'
+            }
+          "
+        />
+      </div>
+      <div v-else-if="tab === 'Ask AI' && ref_" class="h-full overflow-y-auto px-6 py-4">
+        <AskAIPanel :cluster-id="clusterId" :resource="ref_" :initial-prompt="askAIPrompt" />
       </div>
       <p v-else-if="!catalogue.length" class="px-6 py-10 text-center text-sm text-ink-faint">
         Loading…

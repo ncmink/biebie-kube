@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"biebie-kube/internal/domain"
 )
 
 // Data is the on-disk document. Every field is a plain record.
@@ -50,6 +52,16 @@ type Data struct {
 
 	// LastSeenVersion is the app version the user dismissed What's new for.
 	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
+
+	// AI holds Ask AI CLI preferences and per-CLI acknowledgements.
+	AI AISettingsRecord `json:"ai,omitempty"`
+}
+
+// AISettingsRecord persists Ask AI settings (omitempty keeps schema stable).
+type AISettingsRecord struct {
+	DefaultCli   string                      `json:"defaultCli,omitempty"`
+	Custom       []domain.AICustomCommand    `json:"custom,omitempty"`
+	Acknowledged []string                    `json:"acknowledged,omitempty"`
 }
 
 // AutoImportEnabled reports whether new kubeconfig contexts should become

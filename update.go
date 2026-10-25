@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	_ "embed"
+	"fmt"
 	"log"
 	"sync"
 
@@ -23,6 +25,9 @@ const updateRepository = "ncmink/biebie-kube"
 //
 //go:embed updater-key.pem
 var updaterPublicKey []byte
+
+//go:embed frontend/src/assets/images/logo-bb-kube-112.png
+var updaterLogoPNG []byte
 
 // updaterWindowCSS tints the framework update window to match Biebie Kube.
 //
@@ -55,7 +60,26 @@ const updaterWindowCSS = `:root {
 .u__btn--primary:active:not(:disabled) {
 	filter: none;
 	background: #a98ec8;
+}
+
+/* Replace the framework's green checkmark with the app logo on success states. */
+.u--up-to-date .u__icon,
+.u--ready .u__icon {
+	color: transparent;
+	font-size: 0;
+	line-height: 0;
+	background-color: var(--surface-2);
+	background-image: url('%s');
+	background-size: 34px 34px;
+	background-position: center;
+	background-repeat: no-repeat;
+	border: 1px solid var(--border);
 }`
+
+func updaterWindowStyles() string {
+	logo := "data:image/png;base64," + base64.StdEncoding.EncodeToString(updaterLogoPNG)
+	return fmt.Sprintf(updaterWindowCSS, logo)
+}
 
 // configureUpdater wires GitHub Releases into the Wails updater.
 //
@@ -77,7 +101,7 @@ func configureUpdater(app *application.App) {
 		PublicKey:      updaterPublicKey,
 		Providers:      []updater.Provider{update.WithSignatures(gh)},
 		Window: &updater.BuiltinWindow{
-			CSS: updaterWindowCSS,
+			CSS: updaterWindowStyles(),
 		},
 	}); err != nil {
 		log.Printf("updater could not start: %v", err)
